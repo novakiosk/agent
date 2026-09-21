@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "type": "printer.queue.command",
+  "profile": "provisional-ed25519-v1",
+  "commandId": "33333333-3333-4333-8333-333333333333",
+  "action": "cancel-all",
+  "authorityKind": "managed-wireless",
+  "authorityId": "managed-1",
+  "queueName": "NOVA_ZEBRA",
+  "issuedAt": "2026-09-01T10:00:00Z",
+  "expiresAt": "2026-09-01T10:10:00Z",
+  "payloadHash": "e483eb94ccb3db241d28e2b3ce46dcef43430bc96381a7ebf3a428253b4103fe"
+}

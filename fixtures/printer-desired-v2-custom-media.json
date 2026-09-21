@@ -1,0 +1,21 @@
+{
+  "version": 2,
+  "type": "printer.desired",
+  "sessionId": "session-2",
+  "deviceId": "bridge-1",
+  "desiredHash": "e291ac78016d6471e62fa43184a429be73ff9fef5bb4570ef366d5d52fabae74",
+  "queues": [
+    {
+      "printerId": "printer-a",
+      "localName": "NOVA_Zebra_1",
+      "mode": "direct",
+      "privateIp": "192.168.102.250",
+      "connectionProfile": "zebra-appsocket-9100",
+      "driverProfile": "zebra-zpl",
+      "displayName": "Zebra",
+      "location": "Central",
+      "options": [],
+      "customMedia": { "unit": "mm", "height": 65, "width": 90 }
+    }
+  ]
+}

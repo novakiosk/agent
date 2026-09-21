@@ -1,0 +1,7 @@
+{
+  "items": [
+    {"label": "Screen 1", "url": "https://example.test/a", "durationSeconds": 5},
+    {"label": "Screen 2", "url": "https://example.test/b", "durationSeconds": 7}
+  ],
+  "expectedHash": "77342faa8387226086ce17517e6288f07884bbd540b1a8d7ad178ca7f8c8be77"
+}

@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "type": "printer.statistics",
+  "source": "local-cups-lpstat-v1",
+  "observedAt": "2026-08-24T12:34:56.123Z",
+  "errorCategory": null,
+  "truncated": false,
+  "jobs": [
+    {
+      "queueName": "zebra",
+      "jobKey": "03f18d97ddc2a08736a4263f0a66edfab3b2fcc9223a68b89105628e7ac52aaf",
+      "cupsJobId": 7,
+      "sizeBytes": 10,
+      "completedAt": "2026-08-26T12:30:00Z"
+    },
+    {
+      "queueName": "alpha",
+      "jobKey": "5e012b52c52ac50470a921b9f9fede1adfe851e7c1cee75aea755235b32bc3a7",
+      "cupsJobId": 2,
+      "sizeBytes": 2048,
+      "completedAt": "2026-08-26T12:30:00Z"
+    }
+  ],
+  "expectedHash": "f416e66ef4942f71721a3229624480b360680052a0cbf602e2dfd05c86a66775"
+}

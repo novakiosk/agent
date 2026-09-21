@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "type": "bootstrap.enrollment",
+  "idempotencyKey": "fixture-enrollment-key-01",
+  "deviceId": "fixture-device-01",
+  "publicIdentityRef": "fixture-public-identity-01",
+  "proof": {
+    "kind": "fixture",
+    "value": "fixture-proof-01"
+  },
+  "inventory": {
+    "hostname": "fixture-kiosk",
+    "osVersion": "nova-os-fixture",
+    "agentVersion": "0.1.0",
+    "capabilities": ["display"]
+  },
+  "requestedScope": "site:fixture",
+  "nonce": "fixture-nonce-01",
+  "audience": "https://fixture.example.test",
+  "expiresAt": "2099-01-01T00:15:00.000Z"
+}

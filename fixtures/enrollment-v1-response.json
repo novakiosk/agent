@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "type": "bootstrap.enrollment.result",
+  "status": "pending",
+  "enrollmentId": "fixture-enrollment-01",
+  "deviceId": "fixture-device-01",
+  "comparisonValue": "fixture-compare-01",
+  "expiresAt": "2099-01-01T00:15:00.000Z"
+}

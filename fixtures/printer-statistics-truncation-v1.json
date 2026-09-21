@@ -1,0 +1,10 @@
+{
+  "queues": [
+    { "queueName": "aaa", "firstJobId": 10000, "count": 200 },
+    { "queueName": "zzz", "firstJobId": 1, "count": 200 }
+  ],
+  "maxJobs": 256,
+  "expectedCounts": { "aaa": 200, "zzz": 56 },
+  "expectedFirst": ["aaa", 10000],
+  "expectedLast": ["zzz", 200]
+}

@@ -1,0 +1,50 @@
+{
+  "inventory": {
+    "version": 1,
+    "type": "host.inventory",
+    "bootId": "01234567-89ab-cdef-0123-456789abcdef",
+    "interfaces": [
+      { "name": "enp2s0", "mac": "02:11:22:33:44:55", "operState": "up" },
+      { "name": "eth0", "mac": "a2:bb:cc:dd:ee:ff", "operState": "down" }
+    ]
+  },
+  "inventoryHash": "be190914367524f212f4f17461f8f4823a7d351d7d2c34c2c55fca4437561765",
+  "command": {
+    "version": 1,
+    "type": "operation.command",
+    "commandId": "01234567-89ab-cdef-0123-456789abcdef",
+    "commandType": "system-update",
+    "issuedAt": "2026-08-25T12:00:00Z",
+    "expiresAt": "2026-08-25T12:30:00Z",
+    "payloadHash": "460489ce25be36e58c47845d8452a71e8eb14ed6800d17f83c77292218cba4d7"
+  },
+  "ack": {
+    "version": 1,
+    "type": "operation.ack",
+    "profile": "provisional-ed25519-v1",
+    "sessionId": "session-1",
+    "deviceId": "device-1",
+    "commandId": "01234567-89ab-cdef-0123-456789abcdef",
+    "commandType": "system-update",
+    "payloadHash": "460489ce25be36e58c47845d8452a71e8eb14ed6800d17f83c77292218cba4d7",
+    "phase": "accepted",
+    "observedAt": "2026-08-25T12:00:01.123456789Z",
+    "sequence": 7
+  },
+  "ackHash": "ec9d9cc37bbfc9a15a8b0e7a7f21b9267feeecde1a141f544ec3dcdecbffc101",
+  "result": {
+    "version": 1,
+    "type": "operation.result",
+    "profile": "provisional-ed25519-v1",
+    "sessionId": "session-1",
+    "deviceId": "device-1",
+    "commandId": "01234567-89ab-cdef-0123-456789abcdef",
+    "commandType": "system-update",
+    "result": "staged",
+    "errorCategory": null,
+    "observedAt": "2026-08-25T12:00:09.123456789Z",
+    "bootIdBefore": "01234567-89ab-cdef-0123-456789abcdef",
+    "sequence": 8
+  },
+  "resultHash": "cdb8eeb364cb3d8589085edcc88905538c8d39a186ab1df0b6f1f66f5ae2cfc5"
+}

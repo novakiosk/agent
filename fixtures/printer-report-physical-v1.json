@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "type": "printer.report",
+  "source": "local-cups-lpstat-v1",
+  "observedAt": "2026-08-24T12:34:56.123456789Z",
+  "scheduler": "running",
+  "transport": "reachable",
+  "errorCategory": null,
+  "queues": [
+    {"name":"zebra_network","queueState":"idle","acceptingJobs":"yes","activeJobs":null,"physicalState":"ready","sampledAt":"2026-08-24T12:34:56.123456789Z","deviceTransport":"network","physicalSource":"zebra_host_status_tcp_v1"},
+    {"name":"zebra_usb","queueState":"idle","acceptingJobs":"yes","activeJobs":0,"physicalState":"attention","sampledAt":"2026-08-24T12:34:56Z","deviceTransport":"usb","physicalSource":"zebra_host_status_usb_v1","physicalReasons":["paused","head_up"]},
+    {"name":"wireless_unknown","queueState":"unknown","acceptingJobs":"unknown","activeJobs":null,"physicalState":"unknown","sampledAt":"2026-08-24T12:34:56Z","deviceTransport":"network","physicalSource":"zebra_host_status_tcp_v1","physicalErrorCategory":"zebra_no_response"}
+  ],
+  "expectedHash": "4ed548ed1daf88bfa0bb814af08c8f20ab6bca9bf1f3c23651167607810d0782"
+}

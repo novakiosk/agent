@@ -1,0 +1,16 @@
+{
+  "type": "idle-screen-v4",
+  "idleScreenId": "idle-fixture",
+  "revisionId": "revision-fixture",
+  "revision": 2,
+  "timeoutSeconds": 60,
+  "backgroundColor": "#102030",
+  "logos": [],
+  "videoUrl": null,
+  "canvasAspect": "16:9",
+  "texts": [
+    { "id": "welcome-1", "text": "Welcome to NOVA", "color": "#FFFFFF", "font": "noto-sans", "fontSizePercent": 8, "fontWeight": "bold", "textAlign": "center", "xPercent": 50, "yPercent": 42 },
+    { "id": "detail-02", "text": "Scan to begin", "color": "#9FE3EC", "font": "monospace", "fontSizePercent": 4, "fontWeight": "normal", "textAlign": "center", "xPercent": 50, "yPercent": 58 }
+  ],
+  "expectedHash": "f4a3ec628575d3c438d641e1af18f8c694ad5e94b6c1c62965b79f4f3cf99736"
+}
