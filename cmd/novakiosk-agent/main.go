@@ -561,7 +561,7 @@ func smoke(args []string) {
 				os.Exit(1)
 			}
 			fmt.Printf("Managed session heartbeat accepted for device %s\n", state.DeviceID)
-			fmt.Printf("Smoke complete after one heartbeat. To keep the agent running: %s\n", formatNextRunCommandForKind(os.Args[0], *stateDir, state.DeviceKind))
+			fmt.Println(formatSmokeCompletion(os.Args[0], *stateDir, state.DeviceKind))
 			return
 		}
 	}
@@ -597,7 +597,7 @@ func smoke(args []string) {
 				os.Exit(1)
 			}
 			fmt.Printf("Managed session heartbeat accepted for device %s\n", managed.DeviceID)
-			fmt.Printf("Smoke complete after one heartbeat. To keep the agent running: %s\n", formatNextRunCommandForKind(os.Args[0], *stateDir, managed.DeviceKind))
+			fmt.Println(formatSmokeCompletion(os.Args[0], *stateDir, managed.DeviceKind))
 			return
 		}
 		if time.Now().After(deadline) {

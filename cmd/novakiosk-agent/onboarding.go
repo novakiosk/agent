@@ -7,6 +7,14 @@ import (
 	"github.com/novakiosk/agent/enrollment"
 )
 
+func formatSmokeCompletion(executable, stateDir string, kind enrollment.DeviceKind) string {
+	message := "Smoke complete after one heartbeat."
+	if enrollment.EffectiveDeviceKind(kind) == enrollment.DeviceKindKiosk && stateDir == "/var/lib/novakiosk-agent" {
+		message += "\nOn NOVA Kiosk OS, the pre-enabled kiosk service takes over automatically after enrollment when the graphical session is ready."
+	}
+	return message + "\nFor a manual installation without a configured service, run as the same user: " + formatNextRunCommandForKind(executable, stateDir, kind)
+}
+
 // formatNextRunCommandForKind renders a shell-safe handoff command.
 func formatNextRunCommandForKind(executable, stateDir string, kind enrollment.DeviceKind) string {
 	if !safeExecutableArg(executable) {

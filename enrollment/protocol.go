@@ -504,6 +504,7 @@ type IdleDesired struct {
 	TimeoutSeconds  uint64          `json:"timeoutSeconds"`
 	BackgroundColor string          `json:"backgroundColor"`
 	Logos           []IdleLogo      `json:"logos"`
+	LogoBar         *IdleLogoBar    `json:"logoBar,omitempty"`
 	VideoURL        *string         `json:"videoUrl"`
 	CanvasAspect    string          `json:"canvasAspect"`
 	Texts           []IdleTextBlock `json:"texts"`
@@ -519,6 +520,29 @@ type IdleTextBlock struct {
 	TextAlign       string `json:"textAlign"`
 	XPercent        uint64 `json:"xPercent"`
 	YPercent        uint64 `json:"yPercent"`
+}
+
+type IdleLogoBar struct {
+	Color          string `json:"color"`
+	OpacityPercent uint64 `json:"opacityPercent"`
+}
+
+// Both fields are required when the optional bar is present; zero opacity is valid.
+func (bar *IdleLogoBar) UnmarshalJSON(data []byte) error {
+	var fields struct {
+		Color          *string `json:"color"`
+		OpacityPercent *uint64 `json:"opacityPercent"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&fields); err != nil {
+		return err
+	}
+	if fields.Color == nil || fields.OpacityPercent == nil {
+		return fmt.Errorf("idle logo bar fields are required")
+	}
+	bar.Color, bar.OpacityPercent = *fields.Color, *fields.OpacityPercent
+	return nil
 }
 
 type IdleLogo struct {
@@ -838,7 +862,7 @@ func IdleScreenPayloadCanonical(desired IdleDesired) []byte {
 	logosList := make([]IdleLogo, len(desired.Logos))
 	copy(logosList, desired.Logos)
 	positions := map[string]int{"top-left": 0, "top-center": 1, "top-right": 2, "middle-left": 3, "middle-center": 4, "middle-right": 5, "bottom-left": 6, "bottom-center": 7, "bottom-right": 8}
-	sort.Slice(logosList, func(i, j int) bool { return positions[logosList[i].Position] < positions[logosList[j].Position] })
+	sort.SliceStable(logosList, func(i, j int) bool { return positions[logosList[i].Position] < positions[logosList[j].Position] })
 	logos := canonicalIdleJSON(logosList)
 	video := ""
 	if desired.VideoURL != nil {
@@ -849,13 +873,17 @@ func IdleScreenPayloadCanonical(desired IdleDesired) []byte {
 		textsList = []IdleTextBlock{}
 	}
 	texts := canonicalIdleJSON(textsList)
+	bar := ""
+	if desired.LogoBar != nil {
+		bar = "logoBar=" + base64.RawURLEncoding.EncodeToString(canonicalIdleJSON(desired.LogoBar)) + "\n"
+	}
 	return []byte("idle-screen-v4\n" +
 		"timeoutSeconds=" + strconv.FormatUint(desired.TimeoutSeconds, 10) + "\n" +
 		"backgroundColor=" + desired.BackgroundColor + "\n" +
 		"logos=" + base64.RawURLEncoding.EncodeToString(logos) + "\n" +
 		"videoUrl=" + base64.RawURLEncoding.EncodeToString([]byte(video)) + "\n" +
 		"canvasAspect=" + desired.CanvasAspect + "\n" +
-		"texts=" + base64.RawURLEncoding.EncodeToString(texts) + "\n")
+		"texts=" + base64.RawURLEncoding.EncodeToString(texts) + "\n" + bar)
 }
 
 func canonicalIdleJSON(value any) []byte {
@@ -912,16 +940,17 @@ func ValidateIdleDesired(desired IdleDesired) error {
 		}
 		ids[text.ID] = true
 	}
+	if desired.LogoBar != nil && (!regexpColor(desired.LogoBar.Color) || desired.LogoBar.OpacityPercent > 100) {
+		return fmt.Errorf("idle desired logo bar is invalid")
+	}
 	if len(desired.Logos) > 8 {
 		return fmt.Errorf("idle desired logos are invalid")
 	}
-	positions := map[string]bool{}
 	allowedPositions := map[string]bool{"top-left": true, "top-center": true, "top-right": true, "middle-left": true, "middle-center": true, "middle-right": true, "bottom-left": true, "bottom-center": true, "bottom-right": true}
 	for _, logo := range desired.Logos {
-		if !idleElementIDPattern.MatchString(logo.ID) || len(logo.SHA256) != 64 || strings.Trim(logo.SHA256, "0123456789abcdef") != "" || (logo.MIME != "image/png" && logo.MIME != "image/jpeg" && logo.MIME != "image/webp") || logo.SizeBytes < 1 || logo.SizeBytes > 2*1024*1024 || logo.DisplayName == "" || len(logo.DisplayName) > 128 || !safeIdleDisplayName(logo.DisplayName) || !allowedPositions[logo.Position] || positions[logo.Position] || logo.WidthPercent < 5 || logo.WidthPercent > 50 {
+		if !idleElementIDPattern.MatchString(logo.ID) || len(logo.SHA256) != 64 || strings.Trim(logo.SHA256, "0123456789abcdef") != "" || (logo.MIME != "image/png" && logo.MIME != "image/jpeg" && logo.MIME != "image/webp") || logo.SizeBytes < 1 || logo.SizeBytes > 2*1024*1024 || logo.DisplayName == "" || len(logo.DisplayName) > 128 || !safeIdleDisplayName(logo.DisplayName) || !allowedPositions[logo.Position] || logo.WidthPercent < 5 || logo.WidthPercent > 50 {
 			return fmt.Errorf("idle desired logo is invalid")
 		}
-		positions[logo.Position] = true
 	}
 	if desired.VideoURL != nil && !validIdleVideo(*desired.VideoURL) {
 		return fmt.Errorf("idle desired video is invalid")

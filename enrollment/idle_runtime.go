@@ -192,7 +192,7 @@ func IdleHTML(desired IdleDesired) ([]byte, error) {
 	if desired.CanvasAspect == "9:16" {
 		aspectClass = "aspect-portrait"
 	}
-	content := `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; media-src https://*.b-cdn.net; frame-src https://iframe.mediadelivery.net;"><title>Nova idle screen</title><style>html,body{width:100%;height:100%;margin:0}body{background:` + desired.BackgroundColor + `;overflow:hidden;position:relative;display:flex;align-items:center;justify-content:center}.idle-canvas{position:relative;flex:none;max-width:100vw;max-height:100vh;overflow:hidden;container-type:size}.idle-canvas.aspect-landscape{width:min(100vw,177.7777778vh);aspect-ratio:16/9}.idle-canvas.aspect-portrait{width:min(100vw,56.25vh);aspect-ratio:9/16}.media{position:absolute;inset:0;width:100%;height:100%;border:0;object-fit:cover;z-index:0;pointer-events:none}.logos{position:absolute;inset:0;z-index:2;pointer-events:none}.logo{position:absolute;height:auto;max-height:30%;object-fit:contain}.top-left{left:3%;top:3%}.top-center{left:50%;top:3%;transform:translateX(-50%)}.top-right{right:3%;top:3%}.middle-left{left:3%;top:50%;transform:translateY(-50%)}.middle-center{left:50%;top:50%;transform:translate(-50%,-50%)}.middle-right{right:3%;top:50%;transform:translateY(-50%)}.bottom-left{left:3%;bottom:3%}.bottom-center{left:50%;bottom:3%;transform:translateX(-50%)}.bottom-right{right:3%;bottom:3%;transform:translateX(0)}.text-block{position:absolute;z-index:3;width:max-content;max-width:none;transform:translate(-50%,-50%);white-space:pre;overflow-wrap:normal;line-height:1.1;text-shadow:0 2px 8px #0008}.input-capture{position:fixed;inset:0;z-index:2147483647;display:block;background:transparent;outline:none;cursor:default;pointer-events:auto;user-select:none}</style><script>` + inputScript + `</script></head><body data-canvas-aspect="` + desired.CanvasAspect + `"><div class="idle-canvas ` + aspectClass + `" data-canvas-aspect="` + desired.CanvasAspect + `">` + markup + `</div><div id="nova-idle-input-capture" class="input-capture" tabindex="0" autofocus aria-hidden="true"></div></body></html>`
+	content := `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; media-src https://*.b-cdn.net; frame-src https://iframe.mediadelivery.net;"><title>Nova idle screen</title><style>html,body{width:100%;height:100%;margin:0}body{background:` + desired.BackgroundColor + `;overflow:hidden;position:relative;display:flex;align-items:center;justify-content:center}.idle-canvas{position:relative;flex:none;max-width:100vw;max-height:100vh;overflow:hidden;container-type:size}.idle-canvas.aspect-landscape{width:min(100vw,177.7777778vh);aspect-ratio:16/9}.idle-canvas.aspect-portrait{width:min(100vw,56.25vh);aspect-ratio:9/16}.media{position:absolute;inset:0;width:100%;height:100%;border:0;object-fit:cover;z-index:0;pointer-events:none}.logos{position:absolute;inset:0;z-index:2;pointer-events:none}.logo-row{position:absolute;left:0;width:100%;display:grid;grid-template-columns:minmax(0,1fr)}.row-top{top:3%;align-items:start}.row-middle{top:50%;transform:translateY(-50%);align-items:center}.row-bottom{bottom:3%;align-items:end}.logo-bar{position:absolute;inset:-1cqh 0;pointer-events:none}.logo-group{grid-area:1/1;display:flex;align-items:center;gap:2cqw;width:max-content;max-width:94%;z-index:1}.logo-group[data-column="left"]{justify-self:start;margin-left:3cqw}.logo-group[data-column="center"]{justify-self:center}.logo-group[data-column="right"]{justify-self:end;margin-right:3cqw}.logo{min-width:0;flex-shrink:1;height:auto;max-height:30cqh;object-fit:contain}.text-block{position:absolute;z-index:3;width:max-content;max-width:none;transform:translate(-50%,-50%);white-space:pre;overflow-wrap:normal;line-height:1.1;text-shadow:0 2px 8px #0008}.input-capture{position:fixed;inset:0;z-index:2147483647;display:block;background:transparent;outline:none;cursor:default;pointer-events:auto;user-select:none}</style><script>` + inputScript + `</script></head><body data-canvas-aspect="` + desired.CanvasAspect + `"><div class="idle-canvas ` + aspectClass + `" data-canvas-aspect="` + desired.CanvasAspect + `">` + markup + `</div><div id="nova-idle-input-capture" class="input-capture" tabindex="0" autofocus aria-hidden="true"></div></body></html>`
 	return []byte(content), nil
 }
 
@@ -214,17 +214,44 @@ func idleMarkup(desired IdleDesired) string {
 		content.WriteString("<main class=\"text-block\" style=\"left:" + strconv.FormatUint(text.XPercent, 10) + "%;top:" + strconv.FormatUint(text.YPercent, 10) + "%;color:" + text.Color + ";font-family:" + font + ";font-size:" + fontSize + "vmin;font-size:" + fontSize + "cqmin;font-weight:" + html.EscapeString(text.FontWeight) + ";text-align:" + html.EscapeString(text.TextAlign) + "\">" + html.EscapeString(text.Text) + "</main>")
 	}
 	content.WriteString("<section class=\"logos\">")
-	for _, logo := range desired.Logos {
-		extension := "bin"
-		switch logo.MIME {
-		case "image/png":
-			extension = "png"
-		case "image/jpeg":
-			extension = "jpg"
-		case "image/webp":
-			extension = "webp"
+	for _, row := range []string{"top", "middle", "bottom"} {
+		occupied := false
+		for _, logo := range desired.Logos {
+			if strings.HasPrefix(logo.Position, row+"-") {
+				occupied = true
+				break
+			}
 		}
-		content.WriteString("<img class=\"logo " + html.EscapeString(logo.Position) + "\" style=\"width:" + strconv.FormatUint(logo.WidthPercent, 10) + "%\" src=\"assets/" + html.EscapeString(logo.SHA256) + "." + extension + "\" alt=\"" + html.EscapeString(logo.DisplayName) + "\">")
+		if !occupied {
+			continue
+		}
+		content.WriteString("<div class=\"logo-row row-" + row + "\">")
+		if desired.LogoBar != nil {
+			content.WriteString("<div class=\"logo-bar\" style=\"background-color:" + desired.LogoBar.Color + ";opacity:" + strconv.FormatFloat(float64(desired.LogoBar.OpacityPercent)/100, 'f', -1, 64) + "\"></div>")
+		}
+		// Preserve array order within each anchor: it is also part of the payload hash.
+		for _, column := range []string{"left", "center", "right"} {
+			position := row + "-" + column
+			opened := false
+			for _, logo := range desired.Logos {
+				if logo.Position != position {
+					continue
+				}
+				if !opened {
+					content.WriteString("<div class=\"logo-group " + position + "\" data-column=\"" + column + "\">")
+					opened = true
+				}
+				extension := strings.TrimPrefix(logo.MIME, "image/")
+				if extension == "jpeg" {
+					extension = "jpg"
+				}
+				content.WriteString("<img class=\"logo\" style=\"width:" + strconv.FormatUint(logo.WidthPercent, 10) + "cqw\" src=\"assets/" + html.EscapeString(logo.SHA256) + "." + extension + "\" alt=\"" + html.EscapeString(logo.DisplayName) + "\">")
+			}
+			if opened {
+				content.WriteString("</div>")
+			}
+		}
+		content.WriteString("</div>")
 	}
 	return content.String() + "</section>"
 }

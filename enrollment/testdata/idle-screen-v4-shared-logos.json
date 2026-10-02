@@ -1,0 +1,86 @@
+{
+  "type": "idle-screen-v4",
+  "idleScreenId": "idle-fixture",
+  "revisionId": "revision-fixture",
+  "revision": 2,
+  "timeoutSeconds": 60,
+  "backgroundColor": "#102030",
+  "logos": [
+    {
+      "id": "asset-0000",
+      "sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+      "mime": "image/png",
+      "sizeBytes": 100,
+      "displayName": "Logo 1",
+      "position": "middle-center",
+      "widthPercent": 40
+    },
+    {
+      "id": "asset-0001",
+      "sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+      "mime": "image/png",
+      "sizeBytes": 100,
+      "displayName": "Logo 2",
+      "position": "top-right",
+      "widthPercent": 20
+    },
+    {
+      "id": "asset-0002",
+      "sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+      "mime": "image/png",
+      "sizeBytes": 100,
+      "displayName": "Logo 3",
+      "position": "middle-center",
+      "widthPercent": 40
+    },
+    {
+      "id": "asset-0003",
+      "sha256": "4444444444444444444444444444444444444444444444444444444444444444",
+      "mime": "image/png",
+      "sizeBytes": 100,
+      "displayName": "Logo 4",
+      "position": "bottom-left",
+      "widthPercent": 20
+    },
+    {
+      "id": "asset-0004",
+      "sha256": "5555555555555555555555555555555555555555555555555555555555555555",
+      "mime": "image/png",
+      "sizeBytes": 100,
+      "displayName": "Logo 5",
+      "position": "middle-center",
+      "widthPercent": 40
+    },
+    {
+      "id": "asset-0005",
+      "sha256": "6666666666666666666666666666666666666666666666666666666666666666",
+      "mime": "image/png",
+      "sizeBytes": 100,
+      "displayName": "Logo 6",
+      "position": "top-right",
+      "widthPercent": 20
+    },
+    {
+      "id": "asset-0006",
+      "sha256": "7777777777777777777777777777777777777777777777777777777777777777",
+      "mime": "image/png",
+      "sizeBytes": 100,
+      "displayName": "Logo 7",
+      "position": "middle-center",
+      "widthPercent": 40
+    },
+    {
+      "id": "asset-0007",
+      "sha256": "8888888888888888888888888888888888888888888888888888888888888888",
+      "mime": "image/png",
+      "sizeBytes": 100,
+      "displayName": "Logo 8",
+      "position": "middle-center",
+      "widthPercent": 20
+    }
+  ],
+  "videoUrl": null,
+  "canvasAspect": "16:9",
+  "texts": [],
+  "expectedHash": "b59e9269722572b0238ba9869f5cd250e3f3290905c33010becfd163346e3027"
+}
