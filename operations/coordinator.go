@@ -481,6 +481,9 @@ func RequireResolvedForRotation(stateDir string, now time.Time) error {
 	if err := validateStateDirectory(stateDir); err != nil {
 		return err
 	}
+	if err := RequireResolvedFleetUpdate(stateDir, now); err != nil {
+		return err
+	}
 	journal, err := loadOperationJournal(OperationJournalPath(stateDir), now)
 	if err != nil {
 		return err

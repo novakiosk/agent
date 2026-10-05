@@ -33,7 +33,7 @@ func main() {
 			usage()
 			os.Exit(2)
 		}
-		fmt.Println("device-authority-v1")
+		fmt.Println("device-authority-v1 fleet-update-v1")
 	case "version", "--version":
 		if len(os.Args) != 2 {
 			usage()

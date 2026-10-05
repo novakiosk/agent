@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "release": {
+    "version": 1,
+    "compatibility": "fleet-update-v1",
+    "imageRepository": "ghcr.io/novakiosk/os",
+    "imageDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+  },
+  "releaseCanonical": "nova-canonical-v1\ntype=ZmxlZXQtdXBkYXRlLnJlbGVhc2U\ncompatibility=ZmxlZXQtdXBkYXRlLXYx\nimageDigest=c2hhMjU2OjExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTE\nimageRepository=Z2hjci5pby9ub3Zha2lvc2svb3M\nversion=MQ\n",
+  "releaseHash": "fcca0fe0b2cc74c9d441be2081662ea8a8a24115867bb73fbef7924a325cd95c",
+  "command": {
+    "version": 1,
+    "type": "fleet-update.command",
+    "commandId": "00000000-0000-4000-8000-000000000001",
+    "issuedAt": "2026-10-05T12:00:00Z",
+    "expiresAt": "2026-10-05T12:02:00Z",
+    "observeUntil": "2026-10-05T13:00:00Z",
+    "bootIdBefore": "00000000-0000-4000-8000-000000000002",
+    "release": {
+      "version": 1,
+      "compatibility": "fleet-update-v1",
+      "imageRepository": "ghcr.io/novakiosk/os",
+      "imageDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    "payloadHash": "d34776a37b356621f266a9c19983591d797e572cfb00d6c7af817df91530627a",
+    "action": "update"
+  },
+  "report": {
+    "version": 1,
+    "type": "fleet-update.report",
+    "profile": "nova-p256-sha256-v1",
+    "sessionId": "session-1",
+    "deviceId": "device-1",
+    "commandId": "00000000-0000-4000-8000-000000000001",
+    "payloadHash": "d34776a37b356621f266a9c19983591d797e572cfb00d6c7af817df91530627a",
+    "phase": "applied",
+    "boot": {
+      "bootId": "00000000-0000-4000-8000-000000000003",
+      "release": {
+        "version": 1,
+        "compatibility": "fleet-update-v1",
+        "imageRepository": "ghcr.io/novakiosk/os",
+        "imageDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+      },
+      "updateMode": "automatic",
+      "versions": {
+        "os": "44.20261005.1",
+        "agent": "1.1.0",
+        "novakeys": "1.0.0"
+      }
+    },
+    "error": null,
+    "observedAt": "2026-10-05T12:05:00Z",
+    "sequence": 42,
+    "signature": "MEUCICodzXbsnObJFuclCvUbx45r0iDkm_tULZBju5x7ZbVeAiEA56lQFv53m6vFT3lX5EEltWksUxENs--ZQIUDYW61R_s"
+  },
+  "reportCanonical": "nova-canonical-v1\ntype=ZmxlZXQtdXBkYXRlLnJlcG9ydA\nversion=MQ\nprofile=bm92YS1wMjU2LXNoYTI1Ni12MQ\nsessionId=c2Vzc2lvbi0x\ndeviceId=ZGV2aWNlLTE\ncommandId=MDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAx\npayloadHash=ZDM0Nzc2YTM3YjM1NjYyMWYyNjZhOWMxOTk4MzU5MWQ3OTdlNTcyY2ZiMDBkNmM3YWY4MTdkZjkxNTMwNjI3YQ\nphase=YXBwbGllZA\nbootId=MDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAz\nreleaseHash=ZmNjYTBmZTBiMmNjNzRjOWQ0NDFiZTIwODE2NjJlYThhOGEyNDExNTg2N2JiNzNmYmVmNzkyNGEzMjVjZDk1Yw\nupdateMode=YXV0b21hdGlj\nosVersion=NDQuMjAyNjEwMDUuMQ\nagentVersion=MS4xLjA\nnovakeysVersion=MS4wLjA\nerror=\nobservedAt=MjAyNi0xMC0wNVQxMjowNTowMFo\nsequence=NDI\n",
+  "publicKey": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEr7nUp1ofQ0BkpBQxu5M6pz5eEw55\n1vf3pFwqQBBY+q3AdXg900hb+Q8caITM2Q9pzav1imDbEGV/TFXLbtxl6Q==\n-----END PUBLIC KEY-----\n"
+}

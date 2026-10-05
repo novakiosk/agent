@@ -13,6 +13,7 @@ import (
 )
 
 type RunOptions struct {
+	FleetSystem               operations.FleetSystem
 	HeartbeatInterval         time.Duration
 	ReconnectDelay            time.Duration
 	WriteTimeout              time.Duration
@@ -260,6 +261,30 @@ func (client Client) Run(ctx context.Context, options RunOptions) error {
 		return fmt.Errorf("operation state could not be opened")
 	}
 
+	var fleet *operations.FleetCoordinator
+	fleetReports := &fleetReportCache{}
+	if client.FleetUpdateSupported && EffectiveDeviceKind(state.DeviceKind) == DeviceKindKiosk {
+		fleet, err = operations.NewFleetCoordinator(client.StateDir, options.FleetSystem, operationClock)
+		if err != nil {
+			return fmt.Errorf("fleet update state could not be opened: %w", err)
+		}
+		// The lifecycle belongs to the daemon, not a WebSocket connection. A lost
+		// session does not cancel staging or defer the durable reboot transition.
+		fleetCtx, cancelFleet := context.WithCancel(ctx)
+		defer cancelFleet()
+		go func() {
+			ticker := time.NewTicker(time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-fleetCtx.Done():
+					return
+				case <-ticker.C:
+					_ = fleet.Step(fleetCtx)
+				}
+			}
+		}()
+	}
 	sequence := state.HeartbeatSequence
 	// This marker is scoped to this Run/browser lifetime and survives WSS
 	// reconnects, but is intentionally not restored from persisted state.
@@ -381,6 +406,13 @@ func (client Client) Run(ctx context.Context, options RunOptions) error {
 				}
 			}
 			state.SessionID = accepted.SessionID
+			if err := client.handleFleetUpdate(ctx, &state, identity, connection, snapshot.FleetUpdate, fleet, coordinator, options.WriteTimeout, fleetReports); err != nil {
+				connectionErr = err
+				break
+			}
+			if snapshot.Operation != nil && fleet != nil && fleet.Busy() {
+				snapshot.Operation = nil
+			}
 			if err := client.handleHardwareSnapshot(ctx, &state, identity, connection, snapshot, inventoryCollector, coordinator, options.WriteTimeout); err != nil {
 				connectionErr = err
 				break

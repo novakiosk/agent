@@ -178,6 +178,7 @@ type State struct {
 	LastInventoryHash                   string                `json:"lastInventoryHash,omitempty"`
 	LastInventory                       *operations.Inventory `json:"lastInventory,omitempty"`
 	InventoryPending                    bool                  `json:"inventoryPending,omitempty"`
+	FleetUpdateSequence                 uint64                `json:"fleetUpdateSequence,omitempty"`
 	OperationSequence                   uint64                `json:"operationSequence,omitempty"`
 	DeviceKind                          DeviceKind            `json:"deviceKind,omitempty"`
 	PrinterQueuesApplyPending           *bool                 `json:"printerQueuesApplyPending,omitempty"`
@@ -360,19 +361,20 @@ func HeartbeatCanonical(heartbeat Heartbeat) []byte {
 // DesiredSnapshot carries the existing content desired state and an optional
 // signed-session runtime artifact. A nil Desired value means no group exists.
 type DesiredSnapshot struct {
-	Version             int                      `json:"version"`
-	Type                string                   `json:"type"`
-	SessionID           string                   `json:"sessionId"`
-	DeviceID            string                   `json:"deviceId"`
-	Desired             *DesiredContent          `json:"desired"`
-	Idle                *IdleDesired             `json:"idle"`
-	Runtime             *RuntimeArtifact         `json:"runtime"`
-	Operation           *operations.Command      `json:"operation"`
-	RemoteDesktop       *RemoteDesktopDesired    `json:"remoteDesktop"`
-	BrowserCommand      *BrowserCommand          `json:"browserCommand"`
-	PrinterJobCommand   *PrinterJobCommand       `json:"printerJobCommand"`
-	PrinterQueueCommand *PrinterQueueCommand     `json:"printerQueueCommand"`
-	RemoteDesktopPoll   *RemoteDesktopPollPolicy `json:"remoteDesktopPoll,omitempty"`
+	Version             int                       `json:"version"`
+	Type                string                    `json:"type"`
+	SessionID           string                    `json:"sessionId"`
+	DeviceID            string                    `json:"deviceId"`
+	Desired             *DesiredContent           `json:"desired"`
+	Idle                *IdleDesired              `json:"idle"`
+	Runtime             *RuntimeArtifact          `json:"runtime"`
+	FleetUpdate         *operations.UpdateCommand `json:"fleetUpdate,omitempty"`
+	Operation           *operations.Command       `json:"operation"`
+	RemoteDesktop       *RemoteDesktopDesired     `json:"remoteDesktop"`
+	BrowserCommand      *BrowserCommand           `json:"browserCommand"`
+	PrinterJobCommand   *PrinterJobCommand        `json:"printerJobCommand"`
+	PrinterQueueCommand *PrinterQueueCommand      `json:"printerQueueCommand"`
+	RemoteDesktopPoll   *RemoteDesktopPollPolicy  `json:"remoteDesktopPoll,omitempty"`
 }
 
 // RemoteDesktopPollPolicy is sent only to agents which negotiated v2. It is

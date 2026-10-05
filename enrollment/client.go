@@ -34,6 +34,7 @@ type Client struct {
 	IdleScreenSupported          bool
 	RemoteDesktopSupported       bool
 	BrowserSupported             bool
+	FleetUpdateSupported         bool
 	IdleDiagnostics              func(IdleDiagnostic)
 	// doer is a narrow package-internal test seam. Production clients leave it nil so the
 	// strict system-trust/explicit-CA transport below is always used.

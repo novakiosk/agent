@@ -172,7 +172,7 @@ func newRotationFixture(t *testing.T, p256 bool) (*rotationFixture, Client) {
 	fixture := &rotationFixture{t: t, old: identity, now: time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)}
 	server, ca := trustedTLSServer(t, http.HandlerFunc(fixture.serve))
 	t.Cleanup(server.Close)
-	fixture.state = State{Version: 1, Status: "Managed", InstanceURL: server.URL, EnrollmentID: "existing-enrollment", DeviceID: identity.DeviceID, PublicIdentityRef: identity.PublicIdentityRef, IdentityBindingID: "old-binding", SessionID: "old-session", HeartbeatSequence: 57, LastHeartbeatAt: "2026-10-05T11:59:00Z", PrinterReportSequence: 21}
+	fixture.state = State{Version: 1, Status: "Managed", InstanceURL: server.URL, EnrollmentID: "existing-enrollment", DeviceID: identity.DeviceID, PublicIdentityRef: identity.PublicIdentityRef, IdentityBindingID: "old-binding", SessionID: "old-session", HeartbeatSequence: 57, LastHeartbeatAt: "2026-10-05T11:59:00Z", PrinterReportSequence: 21, FleetUpdateSequence: 42}
 	if err := SaveStateAtomic(dir, fixture.state); err != nil {
 		t.Fatal(err)
 	}
@@ -233,7 +233,7 @@ func TestRotationRecoversDurableBoundariesAndLostReplies(t *testing.T) {
 					t.Fatal(err)
 				}
 				defer identity.Close()
-				if !fixture.activated || state.IdentityBindingID != "new-binding" || state.PublicIdentityRef != identity.PublicIdentityRef || state.HeartbeatSequence != 57 || state.PrinterReportSequence != 21 || state.DeviceID != fixture.state.DeviceID || state.EnrollmentID != fixture.state.EnrollmentID || identity.Generation != fixture.old.Generation+1 {
+				if !fixture.activated || state.IdentityBindingID != "new-binding" || state.PublicIdentityRef != identity.PublicIdentityRef || state.HeartbeatSequence != 57 || state.PrinterReportSequence != 21 || state.FleetUpdateSequence != 42 || state.DeviceID != fixture.state.DeviceID || state.EnrollmentID != fixture.state.EnrollmentID || identity.Generation != fixture.old.Generation+1 {
 					t.Fatal("rotation lost authority association or counters")
 				}
 			})

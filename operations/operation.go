@@ -208,7 +208,7 @@ func (executor *Executor) Execute(ctx context.Context, commandType CommandType) 
 		Version: OperationVersion, Type: OperationType, CommandType: commandType,
 		Result: ResultFailed, ObservedAt: executor.timestamp(),
 	}
-	if !validCommandType(commandType) {
+	if !validCommandType(commandType) || (commandType == CommandSystemUpdate && fleetProtocolPresent(executor.fileSystem)) {
 		result.ErrorCategory = errorCategoryPointer(ErrorInvalidCommand)
 		return result
 	}
@@ -456,4 +456,11 @@ func (runner productionRunner) Run(ctx context.Context, commandPath string, args
 		return nil, nil, errOperationOutputLimit
 	}
 	return nil, nil, err
+}
+
+// A v1 helper consumes a typed durable request. A payloadless legacy command
+// must never accidentally stage the request left by a previous update.
+func fleetProtocolPresent(fs FileSystem) bool {
+	_, err := fs.ReadFile("/usr/share/novakiosk/fleet-update-protocol")
+	return err == nil
 }

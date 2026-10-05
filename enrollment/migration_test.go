@@ -15,7 +15,11 @@ import (
 
 func legacyMigrationFixture(t *testing.T) (string, State) {
 	t.Helper()
-	source := filepath.Join(t.TempDir(), "legacy")
+	parent := t.TempDir()
+	if err := os.Chmod(parent, 0700); err != nil {
+		t.Fatal(err)
+	}
+	source := filepath.Join(parent, "legacy")
 	identity, err := GenerateIdentity()
 	if err != nil {
 		t.Fatal(err)
@@ -23,7 +27,7 @@ func legacyMigrationFixture(t *testing.T) (string, State) {
 	if err := SaveIdentityAtomic(source, identity); err != nil {
 		t.Fatal(err)
 	}
-	state := State{Version: 1, Status: "Managed", DeviceKind: DeviceKindKiosk, InstanceURL: "https://control.example", EnrollmentID: "old-enrollment", DeviceID: identity.DeviceID, PublicIdentityRef: identity.PublicIdentityRef, IdentityBindingID: "old-binding", SessionID: "old-session", HeartbeatSequence: 97, LastHeartbeatAt: "2026-10-05T12:00:00Z"}
+	state := State{Version: 1, Status: "Managed", DeviceKind: DeviceKindKiosk, InstanceURL: "https://control.example", EnrollmentID: "old-enrollment", DeviceID: identity.DeviceID, PublicIdentityRef: identity.PublicIdentityRef, IdentityBindingID: "old-binding", SessionID: "old-session", HeartbeatSequence: 97, FleetUpdateSequence: 42, LastHeartbeatAt: "2026-10-05T12:00:00Z"}
 	if err := SaveStateAtomic(source, state); err != nil {
 		t.Fatal(err)
 	}
@@ -39,7 +43,7 @@ func TestAttendedMigrationCopiesOnlyAuthorityAndBlocksDaemon(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, err := LoadState(destination)
-	if err != nil || got.EnrollmentID != state.EnrollmentID || got.HeartbeatSequence != 97 {
+	if err != nil || got.EnrollmentID != state.EnrollmentID || got.HeartbeatSequence != 97 || got.FleetUpdateSequence != 42 {
 		t.Fatalf("state continuity: %+v %v", got, err)
 	}
 	if _, err := os.Stat(filepath.Join(destination, "unrelated-browser-cookie")); !os.IsNotExist(err) {

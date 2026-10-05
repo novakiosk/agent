@@ -318,7 +318,7 @@ func (client Client) openManagedSession(ctx context.Context, state State, identi
 		"version": ProtocolVersion, "type": "session.hello", "enrollmentId": state.EnrollmentID,
 		"deviceId": state.DeviceID, "publicIdentityRef": identity.PublicIdentityRef,
 	}
-	if client.PrinterReconcileSupported || client.PrinterStatisticsSupported || client.PrinterJobsSupported || client.PrinterJobCancelSupported || client.PrinterQueueControlSupported || client.IdleScreenSupported || client.RemoteDesktopSupported || client.BrowserSupported {
+	if client.PrinterReconcileSupported || client.PrinterStatisticsSupported || client.PrinterJobsSupported || client.PrinterJobCancelSupported || client.PrinterQueueControlSupported || client.IdleScreenSupported || client.RemoteDesktopSupported || client.BrowserSupported || client.FleetUpdateSupported {
 		capabilities := make([]string, 0, 8)
 		if client.PrinterReconcileSupported {
 			capabilities = append(capabilities, cupsreconcile.Capability)
@@ -354,6 +354,9 @@ func (client Client) openManagedSession(ctx context.Context, state State, identi
 		}
 		if client.BrowserSupported && EffectiveDeviceKind(state.DeviceKind) == DeviceKindKiosk {
 			capabilities = append(capabilities, BrowserCommandCapability)
+		}
+		if client.FleetUpdateSupported && EffectiveDeviceKind(state.DeviceKind) == DeviceKindKiosk {
+			capabilities = append(capabilities, "fleet-update-v1")
 		}
 		hello["capabilities"] = capabilities
 	}

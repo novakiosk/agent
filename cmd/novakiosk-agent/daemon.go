@@ -15,6 +15,7 @@ import (
 	"github.com/novakiosk/agent/cupsjob"
 	"github.com/novakiosk/agent/cupsreconcile"
 	"github.com/novakiosk/agent/enrollment"
+	"github.com/novakiosk/agent/operations"
 	"github.com/novakiosk/agent/printer"
 	"github.com/novakiosk/agent/runtimeipc"
 )
@@ -132,7 +133,8 @@ func runDaemonAuthority(ctx context.Context, stateDir, socket, ca string, runtim
 	client.IdleScreenSupported = true
 	client.RemoteDesktopSupported = true
 	client.BrowserSupported = true
-	return client.Run(ctx, enrollment.RunOptions{RuntimeMode: "sway", RuntimeApplier: adapter, IdleRuntime: adapter.Idle(), ManagedBrowserFactory: adapter.Browser, RuntimeSnapshot: adapter.Snapshot, RuntimeEpoch: adapter.Epoch, PrinterReporter: report, PrinterStatisticsReporter: statistics, PrinterJobsReporter: jobs, PrinterJobCanceler: control, PrinterQueueController: control, PrinterReconciler: runtimeipc.Reconciler{Reconciler: reconcile, Adapter: adapter}, RemoteDesktop: remote})
+	client.FleetUpdateSupported = operations.FleetUpdateSupported()
+	return client.Run(ctx, enrollment.RunOptions{FleetSystem: &operations.LinuxFleetSystem{AgentVersion: version}, RuntimeMode: "sway", RuntimeApplier: adapter, IdleRuntime: adapter.Idle(), ManagedBrowserFactory: adapter.Browser, RuntimeSnapshot: adapter.Snapshot, RuntimeEpoch: adapter.Epoch, PrinterReporter: report, PrinterStatisticsReporter: statistics, PrinterJobsReporter: jobs, PrinterJobCanceler: control, PrinterQueueController: control, PrinterReconciler: runtimeipc.Reconciler{Reconciler: reconcile, Adapter: adapter}, RemoteDesktop: remote})
 }
 
 func graphicalRuntime(args []string) {

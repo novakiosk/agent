@@ -271,12 +271,16 @@ func Reset(stateDir string) error {
 		return err
 	}
 
+	if err := operations.RequireResolvedFleetUpdate(stateDir, time.Now()); err != nil {
+		return err
+	}
+
 	// Validate every target before removing any artifact. Remove the journal
 	// before enrollment state so a partial reset cannot authorize old commands
 	// under a new enrollment. Lstat makes symlinks,
 	// directories, devices, and unsafe modes fail closed; absent files are
 	// intentionally harmless.
-	for _, path := range []string{operations.OperationJournalPath(stateDir), attemptPath(stateDir), StatePath(stateDir)} {
+	for _, path := range []string{filepath.Join(stateDir, operations.FleetJournalName), operations.OperationJournalPath(stateDir), attemptPath(stateDir), StatePath(stateDir)} {
 		info, statErr := os.Lstat(path)
 		if errors.Is(statErr, fs.ErrNotExist) {
 			continue
@@ -288,7 +292,7 @@ func Reset(stateDir string) error {
 			return fmt.Errorf("reset artifact has unsafe type or permissions")
 		}
 	}
-	for _, path := range []string{operations.OperationJournalPath(stateDir), attemptPath(stateDir), StatePath(stateDir)} {
+	for _, path := range []string{filepath.Join(stateDir, operations.FleetJournalName), operations.OperationJournalPath(stateDir), attemptPath(stateDir), StatePath(stateDir)} {
 		if removeErr := os.Remove(path); removeErr != nil && !errors.Is(removeErr, fs.ErrNotExist) {
 			return fmt.Errorf("clear reset artifact: %w", removeErr)
 		}

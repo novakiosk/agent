@@ -17,6 +17,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -100,7 +101,19 @@ func (f *fixture) stop() {
 }
 func (f *fixture) open() transport.TPMCloser {
 	f.t.Helper()
-	c, err := net.Dial("unix", f.dir+"/sock")
+	// swtpm services a single command socket. Immediately reopening after an
+	// injected failure can briefly fill its listen backlog on fast hosts.
+	// Retry only that transport condition; all TPM assertions remain unchanged.
+	var c net.Conn
+	var err error
+	deadline := time.Now().Add(time.Second)
+	for {
+		c, err = net.Dial("unix", f.dir+"/sock")
+		if !errors.Is(err, syscall.EAGAIN) || !time.Now().Before(deadline) {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
 	if err != nil {
 		f.t.Fatal(err)
 	}
@@ -374,5 +387,56 @@ func TestSimulatorSignFailureCleanup(t *testing.T) {
 	}
 	if err := s.Close(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// Fixed authorization values make internal-zero handling deterministic. A random
+// 32-byte auth value only encounters the upstream v0.9.8 bug intermittently.
+func TestSimulatorAuthorizationZeros(t *testing.T) {
+	for _, zeros := range [][]int{{0}, {15}, {30}, {31}, {0, 15, 31}} {
+		t.Run(fmt.Sprint(zeros), func(t *testing.T) {
+			f := newFixture(t)
+			conn := f.open()
+			p, err := primary(conn)
+			if err != nil {
+				t.Fatal(err)
+			}
+			auth := bytes.Repeat([]byte{0x5a}, 32)
+			for _, i := range zeros {
+				auth[i] = 0
+			}
+			c, err := (tpm2.Create{
+				ParentHandle: tpm2.NamedHandle{Handle: p.ObjectHandle, Name: p.Name},
+				InSensitive:  tpm2.TPM2BSensitiveCreate{Sensitive: &tpm2.TPMSSensitiveCreate{UserAuth: tpm2.TPM2BAuth{Buffer: auth}, Data: tpm2.NewTPMUSensitiveCreate(&tpm2.TPM2BSensitiveData{})}},
+				InPublic:     tpm2.New2B(childTemplate()),
+			}).Execute(conn)
+			if err != nil {
+				conn.Close()
+				t.Fatal(err)
+			}
+			area, err := c.OutPublic.Contents()
+			if err != nil {
+				conn.Close()
+				t.Fatal(err)
+			}
+			name, err := tpm2.ObjectName(area)
+			if err != nil {
+				conn.Close()
+				t.Fatal(err)
+			}
+			b := Bundle{Version: 1, ParentHierarchy: uint32(tpm2.TPMRHOwner), ParentTemplate: tpm2.Marshal(parentTemplate()), ParentName: bytes.Clone(p.Name.Buffer), Public: tpm2.Marshal(c.OutPublic), Private: tpm2.Marshal(c.OutPrivate), Name: bytes.Clone(name.Buffer), Auth: auth}
+			if err := flush(conn, p.ObjectHandle); err != nil {
+				conn.Close()
+				t.Fatal(err)
+			}
+			conn.Close()
+			s, err := load(f.open(), b)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer s.Close()
+			checkSignature(t, s)
+			checkSignature(t, s)
+		})
 	}
 }

@@ -127,9 +127,9 @@ func migrateAuthorityAt(source, destination, profile, expectedOrigin string, sou
 	}
 	defer src.Close()
 	records := map[string][]byte{}
-	for _, name := range []string{identityFilename, stateFilename, attemptFilename, operations.OperationJournalName} {
+	for _, name := range []string{identityFilename, stateFilename, attemptFilename, operations.OperationJournalName, operations.FleetJournalName} {
 		data, err := readOwnedAt(src, name, sourceUID)
-		if errors.Is(err, os.ErrNotExist) && (name == attemptFilename || name == operations.OperationJournalName) {
+		if errors.Is(err, os.ErrNotExist) && (name == attemptFilename || name == operations.OperationJournalName || name == operations.FleetJournalName) {
 			continue
 		}
 		if err != nil {
@@ -166,6 +166,11 @@ func migrateAuthorityAt(source, destination, profile, expectedOrigin string, sou
 	}
 	if raw, ok := records[operations.OperationJournalName]; ok {
 		if err := operations.ValidateResolvedJournal(raw, time.Now()); err != nil {
+			return err
+		}
+	}
+	if raw, ok := records[operations.FleetJournalName]; ok {
+		if err := operations.ValidateResolvedFleetJournal(raw, time.Now()); err != nil {
 			return err
 		}
 	}
@@ -280,7 +285,7 @@ func migrateAuthorityAt(source, destination, profile, expectedOrigin string, sou
 	if err := writeOwnedAt(dst, migrationFilename, markerData, targetUID, targetGID); err != nil {
 		return err
 	}
-	for _, name := range []string{identityFilename, attemptFilename, operations.OperationJournalName, stateFilename} {
+	for _, name := range []string{identityFilename, attemptFilename, operations.OperationJournalName, operations.FleetJournalName, stateFilename} {
 		if data, ok := records[name]; ok {
 			if err := writeOwnedAt(dst, name, data, targetUID, targetGID); err != nil {
 				return err

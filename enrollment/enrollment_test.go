@@ -45,7 +45,11 @@ func testOptions(instance string) EnrollOptions {
 
 func tempStateDir(t *testing.T) string {
 	t.Helper()
-	return filepath.Join(t.TempDir(), "agent-state")
+	parent := t.TempDir()
+	if err := os.Chmod(parent, 0700); err != nil {
+		t.Fatal(err)
+	}
+	return filepath.Join(parent, "agent-state")
 }
 
 type testTLSServer struct {

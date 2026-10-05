@@ -190,7 +190,7 @@ type runFixture struct {
 
 func newRunFixture(t *testing.T, closeFirst, closeAfterAck bool, p256 ...bool) (*runFixture, Client, *testTLSServer) {
 	t.Helper()
-	stateDir := filepath.Join(t.TempDir(), "agent-state")
+	stateDir := tempStateDir(t)
 	identity, err := GenerateIdentity()
 	if len(p256) > 0 && p256[0] {
 		identity, err = CreateSoftwareIdentity(stateDir, "opaque:device-01")

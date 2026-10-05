@@ -202,7 +202,7 @@ func TestCapabilitiesCLI(t *testing.T) {
 	command := exec.Command(os.Args[0], "-test.run=^TestCapabilitiesCLI$")
 	command.Env = append(os.Environ(), "NOVA_TEST_CAPABILITIES=1")
 	output, err := command.CombinedOutput()
-	if err != nil || string(output) != "device-authority-v1\n" {
+	if err != nil || string(output) != "device-authority-v1 fleet-update-v1\n" {
 		t.Fatalf("release capability guard would reject this Agent: %q %v", output, err)
 	}
 }
