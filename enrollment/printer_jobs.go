@@ -46,7 +46,7 @@ type PrinterJobsAccepted struct {
 func PrinterJobsCanonical(report PrinterJobsReport) []byte {
 	return CanonicalV1(PrinterJobsType,
 		CanonicalField{"version", "1"},
-		CanonicalField{"profile", ProvisionalIdentityProfile},
+		CanonicalField{"profile", report.Profile},
 		CanonicalField{"sessionId", report.SessionID},
 		CanonicalField{"deviceId", report.DeviceID},
 		CanonicalField{"reportHash", report.ReportHash},
@@ -63,7 +63,7 @@ func SignPrinterJobs(identity Identity, report PrinterJobsReport) (string, error
 }
 
 func ValidatePrinterJobs(report PrinterJobsReport, sessionID, deviceID string) error {
-	if report.Version != ProtocolVersion || report.Type != PrinterJobsType || report.Profile != ProvisionalIdentityProfile || report.SessionID != sessionID || report.DeviceID != deviceID || report.Sequence == 0 {
+	if report.Version != ProtocolVersion || report.Type != PrinterJobsType || !supportedIdentityProfile(report.Profile) || report.SessionID != sessionID || report.DeviceID != deviceID || report.Sequence == 0 {
 		return fmt.Errorf("printer jobs envelope is invalid")
 	}
 	if err := ValidateDeviceID(report.DeviceID); err != nil {
@@ -115,7 +115,7 @@ func (client Client) sendPrinterJobs(ctx context.Context, state *State, identity
 		return fmt.Errorf("hash printer jobs")
 	}
 	sequence := state.PrinterJobsSequence + 1
-	envelope := PrinterJobsReport{Version: ProtocolVersion, Type: PrinterJobsType, Profile: ProvisionalIdentityProfile, SessionID: sessionID, DeviceID: state.DeviceID, Report: report, ReportHash: reportHash, Sequence: sequence}
+	envelope := PrinterJobsReport{Version: ProtocolVersion, Type: PrinterJobsType, Profile: identity.Profile(), SessionID: sessionID, DeviceID: state.DeviceID, Report: report, ReportHash: reportHash, Sequence: sequence}
 	envelope.Signature, err = SignPrinterJobs(identity, envelope)
 	if err != nil {
 		return err

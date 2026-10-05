@@ -28,6 +28,12 @@ func main() {
 		os.Exit(2)
 	}
 	switch os.Args[1] {
+	case "capabilities":
+		if len(os.Args) != 2 {
+			usage()
+			os.Exit(2)
+		}
+		fmt.Println("device-authority-v1")
 	case "version", "--version":
 		if len(os.Args) != 2 {
 			usage()
@@ -40,6 +46,14 @@ func main() {
 		enroll(os.Args[2:])
 	case "smoke":
 		smoke(os.Args[2:])
+	case "migrate-legacy":
+		migrateLegacy(os.Args[2:])
+	case "rotate":
+		rotateIdentity(os.Args[2:])
+	case "agentd":
+		agentDaemon(os.Args[2:])
+	case "runtime":
+		graphicalRuntime(os.Args[2:])
 	case "run":
 		run(os.Args[2:])
 	case "print-bridge":
@@ -63,7 +77,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: novakiosk-agent version | status --state-dir DIR | enroll --instance HTTPS_URL --state-dir DIR [--scope SCOPE] [--device-kind kiosk|print-server] [--provisional [--device-id EXPECTED_ID] | --device-id ID --identity-ref REF --proof-kind KIND --proof-file PATH] | smoke --instance HTTPS_URL --state-dir DIR [--scope SCOPE] [--device-kind kiosk|print-server] [--device-id EXPECTED_ID] | run --state-dir DIR [--instance HTTPS_URL] [--ca PEM_PATH] [--heartbeat-interval DURATION] [--runtime-mode browser|sway] [--browser-user-data-dir DIR] [--chromium PATH] | print-bridge --state-dir DIR [--instance HTTPS_URL] [--ca PEM_PATH] [--heartbeat-interval DURATION] | cups-job-helper --profile kiosk|print-bridge | doctor [--runtime-mode browser|sway] [--chromium PATH] | printer-probe [--wait DURATION] | idle-surface --state-dir DIR [--chromium PATH] | reset --state-dir DIR [--yes]")
+	fmt.Fprintln(os.Stderr, "usage: novakiosk-agent capabilities | migrate-legacy --profile kiosk|print-bridge --instance HTTPS_ORIGIN | rotate --state-dir DIR [--identity-backing auto|tpm|software] | agentd [--state-dir DIR] | runtime [--state-dir DIR] | version | status --state-dir DIR | enroll --instance HTTPS_URL --state-dir DIR [--scope SCOPE] [--device-kind kiosk|print-server] [--provisional [--device-id EXPECTED_ID] | --device-id ID --identity-ref REF --proof-kind KIND --proof-file PATH] | smoke --instance HTTPS_URL --state-dir DIR [--scope SCOPE] [--device-kind kiosk|print-server] [--device-id EXPECTED_ID] | run --state-dir DIR [--instance HTTPS_URL] [--ca PEM_PATH] [--heartbeat-interval DURATION] [--runtime-mode browser|sway] [--browser-user-data-dir DIR] [--chromium PATH] | print-bridge --state-dir DIR [--instance HTTPS_URL] [--ca PEM_PATH] [--heartbeat-interval DURATION] | cups-job-helper --profile kiosk|print-bridge | doctor [--runtime-mode browser|sway] [--chromium PATH] | printer-probe [--wait DURATION] | idle-surface --state-dir DIR [--chromium PATH] | reset --state-dir DIR [--yes]")
 }
 
 func idleSurface(args []string) {
@@ -154,6 +168,18 @@ func run(args []string) {
 		fmt.Fprintf(os.Stderr, "kiosk startup failed: %v\n", err)
 		os.Exit(1)
 	}
+	lock, lockErr := enrollment.AcquireAuthorityLock(*stateDir)
+	if lockErr != nil {
+		fmt.Fprintln(os.Stderr, lockErr)
+		os.Exit(1)
+	}
+	defer lock.Close()
+	state, err = enrollment.LoadState(*stateDir)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+
 	if *instance != "" {
 		canonical, canonicalErr := enrollment.CanonicalInstanceURL(*instance)
 		if canonicalErr != nil || canonical != state.InstanceURL {
@@ -219,6 +245,13 @@ func printBridge(args []string) {
 		fmt.Fprintln(os.Stderr, "state-dir and a bounded positive heartbeat interval are required")
 		os.Exit(2)
 	}
+	lock, lockErr := enrollment.AcquireAuthorityLock(*stateDir)
+	if lockErr != nil {
+		fmt.Fprintln(os.Stderr, lockErr)
+		os.Exit(1)
+	}
+	defer lock.Close()
+
 	state, err := enrollment.LoadState(*stateDir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "managed state could not be read: %v\n", err)
@@ -363,6 +396,7 @@ func enroll(args []string) {
 	identityRef := flags.String("identity-ref", "", "public identity reference")
 	proofKind := flags.String("proof-kind", "", "opaque proof kind (required; no final algorithm implied)")
 	proofFile := flags.String("proof-file", "", "file containing opaque bootstrap proof")
+	identityBacking := flags.String("identity-backing", "auto", "identity backing: auto (TPM when present), tpm, or software")
 	provisional := flags.Bool("provisional", false, "use the gated provisional Ed25519 identity")
 	caPath := flags.String("ca", "", "explicit trusted CA PEM path")
 	idempotencyKey := flags.String("idempotency-key", "", "enrollment idempotency key (generated and persisted when omitted)")
@@ -371,6 +405,12 @@ func enroll(args []string) {
 		fmt.Fprintln(os.Stderr, "instance and state-dir are required")
 		os.Exit(2)
 	}
+	lock, lockErr := enrollment.AcquireAuthorityLock(*stateDir)
+	if lockErr != nil {
+		fmt.Fprintln(os.Stderr, lockErr)
+		os.Exit(1)
+	}
+	defer lock.Close()
 	if err := validateScope(*scope); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
@@ -393,13 +433,22 @@ func enroll(args []string) {
 	}
 	var proofBytes []byte
 	var identity *enrollment.Identity
-	if *provisional {
-		loaded, err := enrollment.LoadOrCreateIdentity(*stateDir)
+	if *provisional || (*identityRef == "" && *proofKind == "" && *proofFile == "") {
+		if *provisional && *identityBacking != "auto" {
+			fmt.Fprintln(os.Stderr, "select one identity profile")
+			os.Exit(2)
+		}
+		selection := *identityBacking
+		if *provisional {
+			selection = "legacy"
+		}
+		loaded, err := loadSelectedIdentity(*stateDir, selection)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "provisional identity setup failed: %v\n", err)
+			fmt.Fprintf(os.Stderr, "identity setup failed: %v\n", err)
 			os.Exit(1)
 		}
 		identity = &loaded
+		defer identity.Close()
 		if err := validateExpectedDeviceID(*deviceID, identity.DeviceID); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(2)
@@ -410,11 +459,11 @@ func enroll(args []string) {
 		enrollmentDeviceID = identity.DeviceID
 	}
 	if !hasAttempt {
-		if enrollmentDeviceID == "" || (!*provisional && (*identityRef == "" || *proofKind == "" || *proofFile == "")) {
+		if enrollmentDeviceID == "" || (identity == nil && (*identityRef == "" || *proofKind == "" || *proofFile == "")) {
 			fmt.Fprintln(os.Stderr, "device ID, identity-ref, proof-kind, and proof-file are required for a new non-provisional enrollment")
 			os.Exit(2)
 		}
-		if *provisional {
+		if identity != nil {
 			// The provisional enrollment proof is generated from the local
 			// identity and is never accepted from argv or a proof file.
 			proofBytes = nil
@@ -470,6 +519,7 @@ func smoke(args []string) {
 	flags := flag.NewFlagSet("smoke", flag.ExitOnError)
 	instance := flags.String("instance", "", "HTTPS control-plane instance URL")
 	stateDir := flags.String("state-dir", "", "explicit agent state directory")
+	identityBacking := flags.String("identity-backing", "auto", "identity backing: auto (TPM when present), tpm, or software")
 	scope := flags.String("scope", "default", "exact enrollment scope")
 	deviceID := flags.String("device-id", "", "optional expected generated device ID (compatibility check)")
 	deviceKind := flags.String("device-kind", string(enrollment.DeviceKindKiosk), "device kind: kiosk or print-server")
@@ -481,6 +531,12 @@ func smoke(args []string) {
 		fmt.Fprintln(os.Stderr, "instance, state-dir, bounded wait, and positive heartbeat-sequence are required")
 		os.Exit(2)
 	}
+	lock, lockErr := enrollment.AcquireAuthorityLock(*stateDir)
+	if lockErr != nil {
+		fmt.Fprintln(os.Stderr, lockErr)
+		os.Exit(1)
+	}
+	defer lock.Close()
 	if err := validateScope(*scope); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
@@ -494,11 +550,12 @@ func smoke(args []string) {
 		fmt.Fprintln(os.Stderr, "instance must be a canonical HTTPS origin")
 		os.Exit(2)
 	}
-	identity, err := enrollment.LoadOrCreateIdentity(*stateDir)
+	identity, err := loadSelectedIdentity(*stateDir, *identityBacking)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "provisional identity setup failed: %v\n", err)
+		fmt.Fprintf(os.Stderr, "identity setup failed: %v\n", err)
 		os.Exit(1)
 	}
+	defer identity.Close()
 	if err := validateExpectedDeviceID(*deviceID, identity.DeviceID); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
@@ -610,4 +667,32 @@ func smoke(args []string) {
 		}
 		time.Sleep(time.Second)
 	}
+}
+
+func loadSelectedIdentity(stateDir, selection string) (enrollment.Identity, error) {
+	if selection == "legacy" {
+		return enrollment.LoadOrCreateIdentity(stateDir)
+	}
+	if selection != "auto" && selection != "tpm" && selection != "software" {
+		return enrollment.Identity{}, fmt.Errorf("identity-backing must be auto, tpm, or software")
+	}
+	metadata, err := enrollment.InspectIdentity(stateDir)
+	if err == nil {
+		if selection == "software" && metadata.Backing != enrollment.SoftwareP256 || selection == "tpm" && metadata.Backing != enrollment.TPMP256 {
+			return enrollment.Identity{}, fmt.Errorf("existing identity backing is authoritative; use attended rotation to change it")
+		}
+		return enrollment.LoadIdentity(stateDir)
+	}
+	if !errors.Is(err, enrollment.ErrUnconfigured) {
+		return enrollment.Identity{}, err
+	}
+	backing, err := enrollment.SelectFreshBacking(selection)
+	if err != nil {
+		return enrollment.Identity{}, err
+	}
+	deviceID, err := enrollment.GenerateDeviceID()
+	if err != nil {
+		return enrollment.Identity{}, err
+	}
+	return enrollment.CreateP256Identity(stateDir, deviceID, backing)
 }

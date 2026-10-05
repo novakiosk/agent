@@ -58,6 +58,7 @@ type RemoteDesktopDialers struct {
 }
 
 type RemoteDesktopManagerOptions struct {
+	LocalStart   func(context.Context, WayVNCSession) (RemoteDesktopProcess, error)
 	StateDir     string
 	InstanceURL  string
 	CAPath       string
@@ -91,8 +92,10 @@ func NewRemoteDesktopManager(options RemoteDesktopManagerOptions) (*RemoteDeskto
 	if strings.TrimSpace(options.StateDir) == "" {
 		return nil, fmt.Errorf("remote desktop state directory is required")
 	}
-	if err := ensureRemoteDesktopDirectories(options.StateDir); err != nil {
-		return nil, fmt.Errorf("remote desktop state directory is unsafe: %w", err)
+	if options.LocalStart == nil {
+		if err := ensureRemoteDesktopDirectories(options.StateDir); err != nil {
+			return nil, fmt.Errorf("remote desktop state directory is unsafe: %w", err)
+		}
 	}
 	if options.WayVNCBinary == "" {
 		options.WayVNCBinary = "/usr/bin/wayvnc"
@@ -125,8 +128,10 @@ func NewRemoteDesktopManager(options RemoteDesktopManagerOptions) (*RemoteDeskto
 	// A previous process may have exited after atomically installing its
 	// transient config but before cleanup. Only inspect the manager-owned fixed
 	// path; a symlink is never followed or removed.
-	if err := removeRemoteDesktopConfig(remoteDesktopConfigPath(options.StateDir)); err != nil {
-		return nil, fmt.Errorf("remote desktop config filesystem is unavailable")
+	if options.LocalStart == nil {
+		if err := removeRemoteDesktopConfig(remoteDesktopConfigPath(options.StateDir)); err != nil {
+			return nil, fmt.Errorf("remote desktop config filesystem is unavailable")
+		}
 	}
 	return &RemoteDesktopManager{options: options}, nil
 }
@@ -174,23 +179,33 @@ func (manager *RemoteDesktopManager) Apply(ctx context.Context, desired *RemoteD
 	manager.runtime.generation++
 	generation := manager.runtime.generation
 	manager.runtime.mu.Unlock()
-	environment := manager.graphicalEnvironment()
-	if len(environment) == 0 {
-		return RemoteDesktopApplyResult{Result: "failed", ErrorCategory: "graphical-session-unavailable"}
-	}
-	if _, err := os.Stat(manager.options.WayVNCBinary); err != nil {
-		if _, injected := manager.options.Runner.(execRemoteDesktopRunner); injected {
-			return RemoteDesktopApplyResult{Result: "failed", ErrorCategory: "wayvnc-missing"}
+	var process RemoteDesktopProcess
+	var config string
+	var err error
+	if manager.options.LocalStart != nil {
+		process, err = manager.options.LocalStart(ctx, WayVNCSession{SessionID: desired.SessionID, Username: desired.WayVNCUsername, Password: desired.WayVNCPassword, ExpiresAt: desired.ExpiresAt})
+		if err != nil {
+			return RemoteDesktopApplyResult{Result: "failed", ErrorCategory: "graphical-session-unavailable"}
 		}
-	}
-	config, err := manager.writeConfig(desired)
-	if err != nil {
-		return RemoteDesktopApplyResult{Result: "failed", ErrorCategory: "config-filesystem"}
-	}
-	process, err := manager.options.Runner.Start(ctx, manager.options.WayVNCBinary, []string{"--config", config}, environment)
-	if err != nil {
-		_ = os.Remove(config)
-		return RemoteDesktopApplyResult{Result: "failed", ErrorCategory: "process-start"}
+	} else {
+		environment := manager.graphicalEnvironment()
+		if len(environment) == 0 {
+			return RemoteDesktopApplyResult{Result: "failed", ErrorCategory: "graphical-session-unavailable"}
+		}
+		if _, err := os.Stat(manager.options.WayVNCBinary); err != nil {
+			if _, injected := manager.options.Runner.(execRemoteDesktopRunner); injected {
+				return RemoteDesktopApplyResult{Result: "failed", ErrorCategory: "wayvnc-missing"}
+			}
+		}
+		config, err = manager.writeConfig(desired)
+		if err != nil {
+			return RemoteDesktopApplyResult{Result: "failed", ErrorCategory: "config-filesystem"}
+		}
+		process, err = manager.options.Runner.Start(ctx, manager.options.WayVNCBinary, []string{"--config", config}, environment)
+		if err != nil {
+			_ = os.Remove(config)
+			return RemoteDesktopApplyResult{Result: "failed", ErrorCategory: "process-start"}
+		}
 	}
 	runContext, cancel := context.WithCancel(ctx)
 	manager.runtime.mu.Lock()
@@ -248,7 +263,7 @@ func (manager *RemoteDesktopManager) stopCurrentError() error {
 		// every v2 poll while policy is enabled but no session is active.
 		return nil
 	}
-	if config == "" {
+	if config == "" && manager.options.LocalStart == nil {
 		config = remoteDesktopConfigPath(manager.options.StateDir)
 	}
 	processErr := cleanupRemoteDesktopRuntime(process, cancel, conn, socket, manager.options.WaitTimeout)
@@ -314,6 +329,9 @@ func remoteDesktopConfigPath(stateDir string) string {
 }
 
 func removeRemoteDesktopConfig(path string) error {
+	if path == "" {
+		return nil
+	}
 	// Check both manager-owned directories. This prevents cleanup from
 	// following a replaced state-dir or remote-desktop symlink, including after
 	// a process crash when only the fixed config path is available.

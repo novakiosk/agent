@@ -26,6 +26,9 @@ type RunOptions struct {
 	PrinterQueueController    PrinterQueueController
 	PrinterReconciler         cupsreconcile.Applier
 	BrowserFactory            BrowserFactory
+	ManagedBrowserFactory     func(context.Context, *RuntimeBrowserManagement) (Browser, error)
+	RuntimeSnapshot           func(DesiredSnapshot)
+	RuntimeEpoch              func() string
 	BrowserUserDataDir        string
 	ChromiumBinary            string
 	AgentBinary               string
@@ -150,6 +153,9 @@ func (client Client) Run(ctx context.Context, options RunOptions) error {
 	if err != nil {
 		return err
 	}
+	if err := RequireOrdinaryAuthority(client.StateDir); err != nil {
+		return err
+	}
 	state, err := LoadState(client.StateDir)
 	if err != nil {
 		return err
@@ -164,6 +170,7 @@ func (client Client) Run(ctx context.Context, options RunOptions) error {
 	if err != nil {
 		return err
 	}
+	defer identity.Close()
 	if identity.DeviceID != state.DeviceID || state.PublicIdentityRef != identity.PublicIdentityRef {
 		return fmt.Errorf("managed state identity does not match local identity")
 	}
@@ -175,11 +182,15 @@ func (client Client) Run(ctx context.Context, options RunOptions) error {
 	}()
 	var idleRuntime IdleRuntime
 	var managedBrowserConfig *RuntimeBrowserManagement
+	runtimeEpoch := ""
 	browserUserDataDir := options.BrowserUserDataDir
 	if browserUserDataDir == "" {
 		browserUserDataDir = client.StateDir + "/browser"
 	}
 	browserFactory := func(ctx context.Context, userDataDir string) (Browser, error) {
+		if options.ManagedBrowserFactory != nil {
+			return options.ManagedBrowserFactory(ctx, managedBrowserConfig)
+		}
 		if options.BrowserFactory != nil {
 			return options.BrowserFactory(ctx, userDataDir)
 		}
@@ -292,7 +303,7 @@ func (client Client) Run(ctx context.Context, options RunOptions) error {
 				displayMode = DisplayModeUnknown
 			}
 			heartbeat := Heartbeat{
-				Version: ProtocolVersion, Type: "session.heartbeat", Profile: ProvisionalIdentityProfile,
+				Version: ProtocolVersion, Type: "session.heartbeat", Profile: identityProfile(state.PublicIdentityRef),
 				SessionID: accepted.SessionID, DeviceID: state.DeviceID, Sequence: sequence, ObservedAt: observedAt, DisplayMode: displayMode,
 			}
 			var signErr error
@@ -333,6 +344,18 @@ func (client Client) Run(ctx context.Context, options RunOptions) error {
 				if replayErr := validateDesiredSnapshotAt(snapshot, accepted.SessionID, state.DeviceID, client.now(), true, replayBrowser); replayErr != nil {
 					connectionErr = replayErr
 					break
+				}
+			}
+			if options.RuntimeSnapshot != nil {
+				options.RuntimeSnapshot(snapshot)
+			}
+			if options.RuntimeEpoch != nil {
+				epoch := options.RuntimeEpoch()
+				if epoch != runtimeEpoch {
+					runtimeEpoch = epoch
+					state.LastRuntimeArtifactHash = ""
+					state.LastRuntimeAckAccepted = false
+					state.LastIdleAckAccepted = false
 				}
 			}
 			if client.PrinterReconcileSupported {
@@ -657,13 +680,16 @@ func (client Client) pollRemoteDesktopAndApply(ctx context.Context, state *State
 	}
 	observedAt := client.now().UTC().Format(time.RFC3339Nano)
 	poll := RemoteDesktopPoll{
-		Version: ProtocolVersion, Type: "remote-desktop.poll", Profile: ProvisionalIdentityProfile,
+		Version: ProtocolVersion, Type: "remote-desktop.poll", Profile: identityProfile(state.PublicIdentityRef),
 		SessionID: sessionID, DeviceID: state.DeviceID, Sequence: sequence, ObservedAt: observedAt,
 	}
 	var err error
 	poll.Signature, err = encodeIdentitySignature(identity, RemoteDesktopPollCanonical(poll))
-	if err != nil || poll.Signature == "" {
-		return RemoteDesktopPollResult{}, fmt.Errorf("sign remote desktop poll")
+	if err != nil {
+		return RemoteDesktopPollResult{}, err
+	}
+	if poll.Signature == "" {
+		return RemoteDesktopPollResult{}, fmt.Errorf("%w: empty remote poll signature", ErrIdentity)
 	}
 	if err := writeSessionMessage(connection, poll, sessionMessageTimeout); err != nil {
 		return RemoteDesktopPollResult{}, err
@@ -708,8 +734,12 @@ func (client Client) applyRemoteDesktopAndAcknowledge(ctx context.Context, state
 	}
 	sequence := state.RemoteDesktopAckSequence + 1
 	observedAt := client.now().UTC().Format(time.RFC3339Nano)
-	ack := RemoteDesktopAck{Version: ProtocolVersion, Type: "remote-desktop.ack", Profile: ProvisionalIdentityProfile, SessionID: snapshot.SessionID, DeviceID: state.DeviceID, RemoteSessionID: desired.SessionID, Action: desired.Action, Result: result.Result, ErrorCategory: category, ObservedAt: observedAt, Sequence: sequence}
-	ack.Signature, _ = encodeIdentitySignature(identity, RemoteDesktopAckCanonical(ack))
+	ack := RemoteDesktopAck{Version: ProtocolVersion, Type: "remote-desktop.ack", Profile: identity.Profile(), SessionID: snapshot.SessionID, DeviceID: state.DeviceID, RemoteSessionID: desired.SessionID, Action: desired.Action, Result: result.Result, ErrorCategory: category, ObservedAt: observedAt, Sequence: sequence}
+	var signingError error
+	ack.Signature, signingError = encodeIdentitySignature(identity, RemoteDesktopAckCanonical(ack))
+	if signingError != nil {
+		return signingError
+	}
 	if ack.Signature == "" {
 		return fmt.Errorf("sign remote desktop acknowledgement")
 	}
@@ -784,13 +814,17 @@ func (client Client) applyAndAcknowledge(ctx context.Context, state *State, iden
 	sequence := state.AckSequence + 1
 	observedAt := client.now().UTC().Format(time.RFC3339Nano)
 	ack := DesiredAck{
-		Version: ProtocolVersion, Type: "desired.ack", Profile: ProvisionalIdentityProfile,
+		Version: ProtocolVersion, Type: "desired.ack", Profile: identity.Profile(),
 		SessionID: snapshot.SessionID, DeviceID: state.DeviceID,
 		GroupID: desired.GroupID, RevisionID: desired.RevisionID, Revision: desired.Revision,
 		Result: result, ObservedURL: observedURL, ErrorCategory: category,
 		ObservedAt: observedAt, Sequence: sequence,
 	}
-	ack.Signature, _ = encodeIdentitySignature(identity, DesiredAckCanonical(ack))
+	var signingError error
+	ack.Signature, signingError = encodeIdentitySignature(identity, DesiredAckCanonical(ack))
+	if signingError != nil {
+		return signingError
+	}
 	if ack.Signature == "" {
 		return fmt.Errorf("sign desired acknowledgement")
 	}
@@ -847,6 +881,9 @@ func (client Client) applyBrowserCommand(ctx context.Context, state *State, iden
 	replay := state.LastBrowserCommandID == command.CommandID && state.LastBrowserCommandHash == command.PayloadHash
 	if err := command.Validate(client.now(), replay); err != nil {
 		return err
+	}
+	if command.Profile != identity.Profile() {
+		return fmt.Errorf("browser command identity profile mismatch")
 	}
 	if replay {
 		if state.LastBrowserCommandAccepted {
@@ -963,7 +1000,7 @@ func (client Client) applyBrowserCommand(ctx context.Context, state *State, iden
 		value := state.LastBrowserCommandError
 		category = &value
 	}
-	result := BrowserCommandResult{Version: ProtocolVersion, Type: BrowserCommandResultType, Profile: ProvisionalIdentityProfile, SessionID: snapshot.SessionID, DeviceID: state.DeviceID, CommandID: command.CommandID, Action: command.Action, PayloadHash: command.PayloadHash, Result: state.LastBrowserCommandResult, ErrorCategory: category, ObservedURL: state.LastBrowserCommandObservedURL, ZoomPercent: state.LastBrowserCommandZoom, ObservedAt: state.LastBrowserCommandAt, Sequence: state.BrowserCommandSequence}
+	result := BrowserCommandResult{Version: ProtocolVersion, Type: BrowserCommandResultType, Profile: identity.Profile(), SessionID: snapshot.SessionID, DeviceID: state.DeviceID, CommandID: command.CommandID, Action: command.Action, PayloadHash: command.PayloadHash, Result: state.LastBrowserCommandResult, ErrorCategory: category, ObservedURL: state.LastBrowserCommandObservedURL, ZoomPercent: state.LastBrowserCommandZoom, ObservedAt: state.LastBrowserCommandAt, Sequence: state.BrowserCommandSequence}
 	var err error
 	result.Signature, err = encodeIdentitySignature(identity, BrowserCommandResultCanonical(result))
 	if err != nil {
@@ -1006,8 +1043,12 @@ func (client Client) sendUnsupportedDesiredAck(ctx context.Context, state *State
 	sequence := state.AckSequence + 1
 	observedAt := client.now().UTC().Format(time.RFC3339Nano)
 	category := categoryValue
-	ack := DesiredAck{Version: ProtocolVersion, Type: "desired.ack", Profile: ProvisionalIdentityProfile, SessionID: snapshot.SessionID, DeviceID: state.DeviceID, GroupID: snapshot.Desired.GroupID, RevisionID: snapshot.Desired.RevisionID, Revision: snapshot.Desired.Revision, Result: "failed", ObservedURL: "", ErrorCategory: &category, ObservedAt: observedAt, Sequence: sequence}
-	ack.Signature, _ = encodeIdentitySignature(identity, DesiredAckCanonical(ack))
+	ack := DesiredAck{Version: ProtocolVersion, Type: "desired.ack", Profile: identity.Profile(), SessionID: snapshot.SessionID, DeviceID: state.DeviceID, GroupID: snapshot.Desired.GroupID, RevisionID: snapshot.Desired.RevisionID, Revision: snapshot.Desired.Revision, Result: "failed", ObservedURL: "", ErrorCategory: &category, ObservedAt: observedAt, Sequence: sequence}
+	var signingError error
+	ack.Signature, signingError = encodeIdentitySignature(identity, DesiredAckCanonical(ack))
+	if signingError != nil {
+		return signingError
+	}
 	if ack.Signature == "" {
 		return fmt.Errorf("sign desired acknowledgement")
 	}
@@ -1190,8 +1231,12 @@ func (client Client) applyIdleAndAcknowledge(ctx context.Context, state *State, 
 	}
 	sequence := state.IdleAckSequence + 1
 	observedAt := client.now().UTC().Format(time.RFC3339Nano)
-	ack := IdleAck{Version: ProtocolVersion, Type: "idle.desired.ack", Profile: ProvisionalIdentityProfile, SessionID: snapshot.SessionID, DeviceID: state.DeviceID, IdleScreenID: idleScreenID, RevisionID: revisionID, PayloadHash: payloadHash, Result: result, ErrorCategory: category, ObservedAt: observedAt, Sequence: sequence}
-	ack.Signature, _ = encodeIdentitySignature(identity, IdleAckCanonical(ack))
+	ack := IdleAck{Version: ProtocolVersion, Type: "idle.desired.ack", Profile: identity.Profile(), SessionID: snapshot.SessionID, DeviceID: state.DeviceID, IdleScreenID: idleScreenID, RevisionID: revisionID, PayloadHash: payloadHash, Result: result, ErrorCategory: category, ObservedAt: observedAt, Sequence: sequence}
+	var signingError error
+	ack.Signature, signingError = encodeIdentitySignature(identity, IdleAckCanonical(ack))
+	if signingError != nil {
+		return signingError
+	}
 	if ack.Signature == "" {
 		return fmt.Errorf("sign idle acknowledgement")
 	}
@@ -1236,7 +1281,7 @@ func (client Client) sendRuntimeAck(ctx context.Context, state *State, identity 
 	sequence := state.RuntimeAckSequence + 1
 	observedAt := client.now().UTC().Format(time.RFC3339Nano)
 	ack := RuntimeAck{
-		Version: ProtocolVersion, Type: "runtime.ack", Profile: ProvisionalIdentityProfile,
+		Version: ProtocolVersion, Type: "runtime.ack", Profile: identity.Profile(),
 		SessionID: sessionID, DeviceID: state.DeviceID,
 		ArtifactRevision: artifact.ArtifactRevision, ArtifactHash: artifact.ArtifactHash,
 		Result: result, ErrorCategory: category, ObservedAt: observedAt, Sequence: sequence,
@@ -1244,7 +1289,11 @@ func (client Client) sendRuntimeAck(ctx context.Context, state *State, identity 
 	if ack.SessionID == "" {
 		return fmt.Errorf("runtime acknowledgement session is unavailable")
 	}
-	ack.Signature, _ = encodeIdentitySignature(identity, RuntimeAckCanonical(ack))
+	var signingError error
+	ack.Signature, signingError = encodeIdentitySignature(identity, RuntimeAckCanonical(ack))
+	if signingError != nil {
+		return signingError
+	}
 	if ack.Signature == "" {
 		return fmt.Errorf("sign runtime acknowledgement")
 	}

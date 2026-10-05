@@ -85,14 +85,14 @@ func (client Client) sendInventoryIfNeeded(
 		return fmt.Errorf("persist host inventory")
 	}
 	report := HostInventoryEnvelope{
-		Version: ProtocolVersion, Type: HostInventoryType, Profile: HostInventoryProfile,
+		Version: ProtocolVersion, Type: HostInventoryType, Profile: identityProfile(state.PublicIdentityRef),
 		SessionID: state.SessionID, DeviceID: state.DeviceID,
 		Inventory: inventory, InventoryHash: inventoryHash, Sequence: sequence,
 	}
 	var signErr error
 	report.Signature, signErr = encodeIdentitySignature(identity, HostInventoryCanonical(report))
 	if signErr != nil {
-		return fmt.Errorf("sign host inventory")
+		return fmt.Errorf("sign host inventory: %w", signErr)
 	}
 	if err := writeSessionMessage(connection, report, writeTimeout); err != nil {
 		return err
@@ -212,10 +212,11 @@ func (client Client) sendOperationAck(
 		phase = "duplicate"
 	}
 	ack := OperationAckForCommand(command, state.SessionID, state.DeviceID, state.OperationSequence, client.now().UTC().Format(time.RFC3339Nano), phase)
+	ack.Profile = identity.Profile()
 	var err error
 	ack.Signature, err = encodeIdentitySignature(identity, OperationAckCanonical(ack))
 	if err != nil {
-		return fmt.Errorf("sign operation acknowledgement")
+		return fmt.Errorf("sign operation acknowledgement: %w", err)
 	}
 	if err := writeSessionMessage(connection, ack, writeTimeout); err != nil {
 		return err
@@ -252,9 +253,10 @@ func (client Client) sendOperationResult(
 		return fmt.Errorf("persist operation result")
 	}
 	envelope := OperationResultForCommand(command, result, state.SessionID, state.DeviceID, state.OperationSequence)
+	envelope.Profile = identity.Profile()
 	envelope.Signature, err = encodeIdentitySignature(identity, OperationResultCanonical(envelope))
 	if err != nil {
-		return fmt.Errorf("sign operation result")
+		return fmt.Errorf("sign operation result: %w", err)
 	}
 	if err := writeSessionMessage(connection, envelope, writeTimeout); err != nil {
 		return err

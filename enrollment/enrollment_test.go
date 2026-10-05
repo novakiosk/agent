@@ -217,7 +217,7 @@ func TestProvisionalIdentityIsDurablePrivateAndReused(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.PublicIdentityRef != second.PublicIdentityRef || string(first.PrivateKey) != string(second.PrivateKey) || first.DeviceID != second.DeviceID {
+	if first.PublicIdentityRef != second.PublicIdentityRef || string(first.signer.(ed25519.PrivateKey)) != string(second.signer.(ed25519.PrivateKey)) || first.DeviceID != second.DeviceID {
 		t.Fatal("identity was not reused")
 	}
 	if matched, _ := regexp.MatchString(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`, first.DeviceID); !matched {
@@ -280,7 +280,7 @@ func TestResetClearsAuthorityFilesAndPreservesIdentityBytes(t *testing.T) {
 		t.Fatalf("pending attempt remains after reset: %v", err)
 	}
 	loaded, err := LoadIdentity(stateDir)
-	if err != nil || loaded.DeviceID != identity.DeviceID || !bytes.Equal(loaded.PrivateKey, identity.PrivateKey) {
+	if err != nil || loaded.DeviceID != identity.DeviceID || !bytes.Equal(loaded.signer.(ed25519.PrivateKey), identity.signer.(ed25519.PrivateKey)) {
 		t.Fatalf("identity did not survive reset: %+v, %v", loaded, err)
 	}
 	if err := Reset(stateDir); err != nil {
@@ -320,7 +320,7 @@ func writeLegacyIdentity(t *testing.T, stateDir string, identity Identity) {
 	}
 	data, err := json.MarshalIndent(persistedIdentity{
 		Version: ProtocolVersion, Profile: ProvisionalIdentityProfile,
-		PublicIdentityRef: identity.PublicIdentityRef, PrivateKey: encodeRaw(identity.PrivateKey),
+		PublicIdentityRef: identity.PublicIdentityRef, PrivateKey: encodeRaw(identity.signer.(ed25519.PrivateKey)),
 	}, "", "  ")
 	if err != nil {
 		t.Fatal(err)
@@ -340,11 +340,11 @@ func TestLegacyIdentityMigrationPreservesStateDeviceIDAndPrivateKey(t *testing.T
 	if err := SaveStateAtomic(stateDir, State{Version: 1, Status: "Pending", InstanceURL: "https://control.example", EnrollmentID: "enrollment-01", DeviceID: "state-device-01", PublicIdentityRef: legacy.PublicIdentityRef}); err != nil {
 		t.Fatal(err)
 	}
-	migrated, err := LoadIdentity(stateDir)
+	migrated, err := MigrateLegacyIdentity(stateDir, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if migrated.DeviceID != "state-device-01" || string(migrated.PrivateKey) != string(legacy.PrivateKey) || migrated.PublicIdentityRef != legacy.PublicIdentityRef {
+	if migrated.DeviceID != "state-device-01" || string(migrated.signer.(ed25519.PrivateKey)) != string(legacy.signer.(ed25519.PrivateKey)) || migrated.PublicIdentityRef != legacy.PublicIdentityRef {
 		t.Fatalf("migrated identity = %+v, key changed or state device ID was not preserved", migrated)
 	}
 	persisted, err := LoadIdentity(stateDir)
@@ -367,28 +367,29 @@ func TestLegacyIdentityMigrationPreservesPendingAttemptDeviceID(t *testing.T) {
 	if err := SaveAttemptAtomic(stateDir, Request{Version: 1, Type: "bootstrap.enrollment", IdempotencyKey: "pending-key", DeviceID: "pending-device-01", PublicIdentityRef: legacy.PublicIdentityRef, Proof: Proof{Kind: ProvisionalIdentityProfile, Value: "opaque-proof"}}); err != nil {
 		t.Fatal(err)
 	}
-	migrated, err := LoadIdentity(stateDir)
+	migrated, err := MigrateLegacyIdentity(stateDir, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if migrated.DeviceID != "pending-device-01" || string(migrated.PrivateKey) != string(legacy.PrivateKey) {
+	if migrated.DeviceID != "pending-device-01" || string(migrated.signer.(ed25519.PrivateKey)) != string(legacy.signer.(ed25519.PrivateKey)) {
 		t.Fatalf("pending attempt migration = %+v", migrated)
 	}
 }
 
-func TestLegacyIdentityMigrationGeneratesDeviceIDWithoutAuthorityFiles(t *testing.T) {
+func TestLegacyIdentityMigrationRequiresAuthorityFiles(t *testing.T) {
 	stateDir := tempStateDir(t)
-	legacy, err := GenerateIdentity()
-	if err != nil {
-		t.Fatal(err)
-	}
+	legacy, _ := GenerateIdentity()
 	writeLegacyIdentity(t, stateDir, legacy)
-	migrated, err := LoadIdentity(stateDir)
-	if err != nil {
-		t.Fatal(err)
+	before, _ := os.ReadFile(IdentityPath(stateDir))
+	if _, err := LoadIdentity(stateDir); err == nil {
+		t.Fatal("load migrated missing device ID")
 	}
-	if migrated.DeviceID == "" || migrated.DeviceID == legacy.DeviceID || string(migrated.PrivateKey) != string(legacy.PrivateKey) {
-		t.Fatalf("generated migration device ID/key = %q/%t", migrated.DeviceID, string(migrated.PrivateKey) == string(legacy.PrivateKey))
+	if _, err := MigrateLegacyIdentity(stateDir, ""); err == nil {
+		t.Fatal("migration generated a device ID")
+	}
+	after, _ := os.ReadFile(IdentityPath(stateDir))
+	if !bytes.Equal(before, after) {
+		t.Fatal("failed migration mutated identity")
 	}
 }
 
@@ -402,7 +403,7 @@ func TestLegacyIdentityMigrationRefusesInvalidExistingState(t *testing.T) {
 	if err := os.WriteFile(StatePath(stateDir), []byte(`{"not":"state"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := LoadIdentity(stateDir); err == nil {
+	if _, err := MigrateLegacyIdentity(stateDir, ""); err == nil {
 		t.Fatal("legacy identity migration accepted malformed existing state")
 	}
 	data, err := os.ReadFile(IdentityPath(stateDir))
@@ -424,7 +425,7 @@ func TestLegacyIdentityMigrationRefusesUnsafePendingAttempt(t *testing.T) {
 	if err := os.Chmod(attemptPath(stateDir), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := LoadIdentity(stateDir); err == nil {
+	if _, err := MigrateLegacyIdentity(stateDir, ""); err == nil {
 		t.Fatal("legacy identity migration accepted unsafe existing pending attempt")
 	}
 }
@@ -443,7 +444,7 @@ func TestLegacyIdentityMigrationRefusesMismatchedStateIdentityWithoutRewrite(t *
 	if err := SaveStateAtomic(stateDir, State{Version: 1, Status: "Pending", InstanceURL: "https://control.example", EnrollmentID: "enrollment-01", DeviceID: "state-device-01", PublicIdentityRef: "provisional-ed25519-v1:other"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := LoadIdentity(stateDir); err == nil || !strings.Contains(err.Error(), "does not match local identity") {
+	if _, err := MigrateLegacyIdentity(stateDir, ""); err == nil || !strings.Contains(err.Error(), "does not match local identity") {
 		t.Fatalf("error = %v, want state identity mismatch", err)
 	}
 	current, err := os.ReadFile(IdentityPath(stateDir))
@@ -466,7 +467,7 @@ func TestLegacyIdentityMigrationRefusesMismatchedAttemptIdentityWithoutRewrite(t
 	if err := SaveAttemptAtomic(stateDir, Request{Version: 1, Type: "bootstrap.enrollment", IdempotencyKey: "pending-key", DeviceID: "pending-device-01", PublicIdentityRef: "provisional-ed25519-v1:other", Proof: Proof{Kind: ProvisionalIdentityProfile, Value: "opaque-proof"}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := LoadIdentity(stateDir); err == nil || !strings.Contains(err.Error(), "does not match local identity") {
+	if _, err := MigrateLegacyIdentity(stateDir, ""); err == nil || !strings.Contains(err.Error(), "does not match local identity") {
 		t.Fatalf("error = %v, want pending identity mismatch", err)
 	}
 	current, err := os.ReadFile(IdentityPath(stateDir))
@@ -917,6 +918,9 @@ func ParsePublicIdentityRef(value string) (ed25519.PublicKey, error) {
 }
 
 func VerifySignature(publicRef string, canonical []byte, encoded string) bool {
+	if identityProfile(publicRef) == P256IdentityProfile {
+		return verifyP256Test(publicRef, canonical, encoded)
+	}
 	publicKey, err := ParsePublicIdentityRef(publicRef)
 	if err != nil || len(canonical) == 0 {
 		return false

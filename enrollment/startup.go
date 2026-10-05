@@ -65,3 +65,24 @@ func kioskGraphicalSessionReady() (bool, error) {
 	}
 	return err == nil, err
 }
+
+// WaitForGraphicalRuntime checks only this account's local Wayland/Sway state.
+// The companion never reads the daemon's identity or enrollment directory.
+func WaitForGraphicalRuntime(ctx context.Context) error {
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	for {
+		ready, err := kioskGraphicalSessionReady()
+		if err != nil {
+			return err
+		}
+		if ready {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}

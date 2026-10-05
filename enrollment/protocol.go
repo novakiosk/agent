@@ -261,7 +261,7 @@ func enrollmentCanonical(request Request, includeKind bool) []byte {
 	capabilities, _ := json.Marshal(request.Inventory.Capabilities)
 	fields := []CanonicalField{
 		{"version", "1"},
-		{"profile", ProvisionalIdentityProfile},
+		{"profile", identityProfile(request.PublicIdentityRef)},
 		{"idempotencyKey", request.IdempotencyKey},
 		{"deviceId", request.DeviceID},
 	}
@@ -285,7 +285,7 @@ func enrollmentCanonical(request Request, includeKind bool) []byte {
 func ClaimCanonical(claim IdentityClaim) []byte {
 	return CanonicalV1("bootstrap.identity.claim",
 		CanonicalField{"version", "1"},
-		CanonicalField{"profile", ProvisionalIdentityProfile},
+		CanonicalField{"profile", identityProfile(claim.PublicIdentityRef)},
 		CanonicalField{"enrollmentId", claim.EnrollmentID},
 		CanonicalField{"deviceId", claim.DeviceID},
 		CanonicalField{"publicIdentityRef", claim.PublicIdentityRef},
@@ -314,7 +314,7 @@ type ChallengeResponse struct {
 func ChallengeCanonical(response ChallengeResponse) []byte {
 	return CanonicalV1("session.challenge.response",
 		CanonicalField{"version", "1"},
-		CanonicalField{"profile", ProvisionalIdentityProfile},
+		CanonicalField{"profile", identityProfile(response.PublicIdentityRef)},
 		CanonicalField{"sessionId", response.SessionID},
 		CanonicalField{"challengeId", response.ChallengeID},
 		CanonicalField{"enrollmentId", response.EnrollmentID},
@@ -342,7 +342,7 @@ type Heartbeat struct {
 func HeartbeatCanonical(heartbeat Heartbeat) []byte {
 	fields := []CanonicalField{
 		CanonicalField{"version", "1"},
-		CanonicalField{"profile", ProvisionalIdentityProfile},
+		CanonicalField{"profile", heartbeat.Profile},
 		CanonicalField{"sessionId", heartbeat.SessionID},
 		CanonicalField{"deviceId", heartbeat.DeviceID},
 		CanonicalField{"sequence", fmt.Sprintf("%d", heartbeat.Sequence)},
@@ -674,7 +674,7 @@ func DesiredAckCanonical(ack DesiredAck) []byte {
 	}
 	return CanonicalV1("desired.ack",
 		CanonicalField{"version", "1"},
-		CanonicalField{"profile", ProvisionalIdentityProfile},
+		CanonicalField{"profile", ack.Profile},
 		CanonicalField{"sessionId", ack.SessionID},
 		CanonicalField{"deviceId", ack.DeviceID},
 		CanonicalField{"groupId", ack.GroupID},
@@ -695,7 +695,7 @@ func RuntimeAckCanonical(ack RuntimeAck) []byte {
 	}
 	return CanonicalV1("runtime.ack",
 		CanonicalField{"version", "1"},
-		CanonicalField{"profile", ProvisionalIdentityProfile},
+		CanonicalField{"profile", ack.Profile},
 		CanonicalField{"sessionId", ack.SessionID},
 		CanonicalField{"deviceId", ack.DeviceID},
 		CanonicalField{"artifactRevision", ack.ArtifactRevision},
@@ -713,7 +713,7 @@ func IdleAckCanonical(ack IdleAck) []byte {
 		errorCategory = *ack.ErrorCategory
 	}
 	return CanonicalV1("idle.desired.ack",
-		CanonicalField{"version", "1"}, CanonicalField{"profile", ProvisionalIdentityProfile},
+		CanonicalField{"version", "1"}, CanonicalField{"profile", ack.Profile},
 		CanonicalField{"sessionId", ack.SessionID}, CanonicalField{"deviceId", ack.DeviceID},
 		CanonicalField{"idleScreenId", ack.IdleScreenID}, CanonicalField{"revisionId", ack.RevisionID},
 		CanonicalField{"payloadHash", ack.PayloadHash}, CanonicalField{"result", ack.Result},
@@ -728,7 +728,7 @@ func RemoteDesktopAckCanonical(ack RemoteDesktopAck) []byte {
 		errorCategory = *ack.ErrorCategory
 	}
 	return CanonicalV1("remote-desktop.ack",
-		CanonicalField{"version", "1"}, CanonicalField{"profile", ProvisionalIdentityProfile},
+		CanonicalField{"version", "1"}, CanonicalField{"profile", ack.Profile},
 		CanonicalField{"sessionId", ack.SessionID}, CanonicalField{"deviceId", ack.DeviceID},
 		CanonicalField{"remoteSessionId", ack.RemoteSessionID}, CanonicalField{"action", ack.Action},
 		CanonicalField{"result", ack.Result}, CanonicalField{"errorCategory", errorCategory},
@@ -741,7 +741,7 @@ func RemoteDesktopAckCanonical(ack RemoteDesktopAck) []byte {
 // monotonic for the lifetime of that WebSocket connection.
 func RemoteDesktopPollCanonical(poll RemoteDesktopPoll) []byte {
 	return CanonicalV1("remote-desktop.poll",
-		CanonicalField{"version", "1"}, CanonicalField{"profile", ProvisionalIdentityProfile},
+		CanonicalField{"version", "1"}, CanonicalField{"profile", poll.Profile},
 		CanonicalField{"sessionId", poll.SessionID}, CanonicalField{"deviceId", poll.DeviceID},
 		CanonicalField{"sequence", fmt.Sprintf("%d", poll.Sequence)}, CanonicalField{"observedAt", poll.ObservedAt},
 	)

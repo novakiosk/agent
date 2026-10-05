@@ -2,7 +2,6 @@ package enrollment
 
 import (
 	"context"
-	"crypto/ed25519"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
@@ -28,6 +27,9 @@ type SessionProtocolError struct{ Code string }
 func (err *SessionProtocolError) Error() string { return "managed session rejected: " + err.Code }
 
 func permanentSessionError(err error) bool {
+	if errors.Is(err, ErrIdentity) {
+		return true
+	}
 	var protocolErr *SessionProtocolError
 	if !errors.As(err, &protocolErr) {
 		return false
@@ -233,7 +235,7 @@ func readSessionMessageBounded(ctx context.Context, connection *websocket.Conn, 
 }
 
 func validateSessionChallenge(challenge sessionChallenge, state State, identity Identity, instance *url.URL, now time.Time) error {
-	if challenge.Version != ProtocolVersion || challenge.Type != "session.challenge" || challenge.Profile != ProvisionalIdentityProfile ||
+	if challenge.Version != ProtocolVersion || challenge.Type != "session.challenge" || challenge.Profile != identity.Profile() ||
 		challenge.SessionID == "" || challenge.ChallengeID == "" || challenge.EnrollmentID != state.EnrollmentID ||
 		challenge.IdentityBindingID == "" || challenge.DeviceID != state.DeviceID ||
 		challenge.PublicIdentityRef != identity.PublicIdentityRef || challenge.Nonce == "" ||
@@ -268,7 +270,7 @@ func writeSessionMessage(connection *websocket.Conn, value any, timeout time.Dur
 // socket open for periodic heartbeats. The cleanup function also stops the
 // context watcher used to unblock reads during reconnect/cancellation.
 func (client Client) openManagedSession(ctx context.Context, state State, identity Identity, writeTimeout time.Duration) (*websocket.Conn, sessionAccepted, func(), error) {
-	if (state.Status != "Pending" && state.Status != "Managed") || state.EnrollmentID == "" || state.DeviceID == "" || identity.PublicIdentityRef == "" {
+	if (state.Status != "Pending" && state.Status != "Managed") || state.EnrollmentID == "" || state.DeviceID == "" || identity.PublicIdentityRef == "" || state.DeviceID != identity.DeviceID || state.PublicIdentityRef != identity.PublicIdentityRef {
 		return nil, sessionAccepted{}, func() {}, fmt.Errorf("pending enrollment and identity are required")
 	}
 	instance, err := validateInstance(state.InstanceURL)
@@ -368,7 +370,7 @@ func (client Client) openManagedSession(ctx context.Context, state State, identi
 		return nil, sessionAccepted{}, func() {}, err
 	}
 	responseMessage := ChallengeResponse{
-		Version: ProtocolVersion, Type: "session.challenge.response", Profile: ProvisionalIdentityProfile,
+		Version: ProtocolVersion, Type: "session.challenge.response", Profile: identityProfile(state.PublicIdentityRef),
 		SessionID: challenge.SessionID, ChallengeID: challenge.ChallengeID, EnrollmentID: challenge.EnrollmentID,
 		IdentityBindingID: challenge.IdentityBindingID, DeviceID: challenge.DeviceID,
 		PublicIdentityRef: challenge.PublicIdentityRef, Nonce: challenge.Nonce, Audience: challenge.Audience,
@@ -387,7 +389,7 @@ func (client Client) openManagedSession(ctx context.Context, state State, identi
 		cleanup()
 		return nil, sessionAccepted{}, func() {}, err
 	}
-	if accepted.Version != ProtocolVersion || accepted.Type != "session.accepted" || accepted.Profile != ProvisionalIdentityProfile || accepted.SessionID != challenge.SessionID || accepted.EnrollmentID != state.EnrollmentID || accepted.DeviceID != state.DeviceID || accepted.IdentityBindingID != challenge.IdentityBindingID {
+	if accepted.Version != ProtocolVersion || accepted.Type != "session.accepted" || accepted.Profile != identity.Profile() || accepted.SessionID != challenge.SessionID || accepted.EnrollmentID != state.EnrollmentID || accepted.DeviceID != state.DeviceID || accepted.IdentityBindingID != challenge.IdentityBindingID {
 		cleanup()
 		return nil, sessionAccepted{}, func() {}, fmt.Errorf("managed session was not accepted")
 	}
@@ -409,6 +411,9 @@ func (client Client) ConnectAndHeartbeatWithRetry(ctx context.Context, state Sta
 			return evidence, nil
 		}
 		lastErr = err
+		if permanentSessionError(err) {
+			return SessionEvidence{}, err
+		}
 		if attempt+1 >= maxAttempts {
 			break
 		}
@@ -437,7 +442,7 @@ func (client Client) ConnectAndHeartbeatEvidence(ctx context.Context, state Stat
 	defer cleanup()
 	observedAt := client.now().UTC().Format(time.RFC3339Nano)
 	heartbeat := Heartbeat{
-		Version: ProtocolVersion, Type: "session.heartbeat", Profile: ProvisionalIdentityProfile,
+		Version: ProtocolVersion, Type: "session.heartbeat", Profile: identityProfile(state.PublicIdentityRef),
 		SessionID: accepted.SessionID, DeviceID: state.DeviceID, Sequence: options.HeartbeatSequence, ObservedAt: observedAt,
 		DisplayMode: client.observeDisplayMode(options.DisplayModeObserver),
 	}
@@ -462,7 +467,7 @@ func encodeIdentitySignature(identity Identity, canonical []byte) (string, error
 	if len(canonical) == 0 {
 		return "", fmt.Errorf("canonical payload is too large")
 	}
-	return encodeRaw(ed25519.Sign(identity.PrivateKey, canonical)), nil
+	return identity.sign(canonical)
 }
 
 func reconnectDelay(attempt int) time.Duration {

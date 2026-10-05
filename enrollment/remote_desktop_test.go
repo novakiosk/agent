@@ -3,6 +3,7 @@ package enrollment
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -291,76 +292,88 @@ func TestRemoteDesktopApplyWaitsForTunnelAndCleansFailedStart(t *testing.T) {
 }
 
 func TestRemoteDesktopApplySameStartAndStopAreIdempotent(t *testing.T) {
-	stateDir := privateRemoteDesktopTempDir(t)
-	now := time.Date(2026, 8, 28, 12, 0, 0, 0, time.UTC)
-	runner := &fakeRemoteDesktopRunner{}
-	var peer net.Conn
-	var serverConn *websocket.Conn
-	serverReady := make(chan struct{})
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
-		connection, upgradeErr := upgrader.Upgrade(writer, request, nil)
-		if upgradeErr != nil {
-			return
-		}
-		serverConn = connection
-		close(serverReady)
-		_, _, _ = connection.ReadMessage()
-	}))
-	defer server.Close()
-	manager, err := NewRemoteDesktopManager(RemoteDesktopManagerOptions{
-		StateDir: stateDir, InstanceURL: "https://control.example", Runner: runner,
-		Environment: []string{"XDG_RUNTIME_DIR=/run/user/1000", "WAYLAND_DISPLAY=wayland-1"},
-		Clock:       func() time.Time { return now }, WaitTimeout: time.Second,
-		Dialers: RemoteDesktopDialers{
-			TCP: func(context.Context, string, string) (net.Conn, error) {
-				local, remote := net.Pipe()
-				peer = remote
-				return local, nil
-			},
-			WSS: func(ctx context.Context, _ string, header http.Header) (*websocket.Conn, error) {
-				if header.Get("Authorization") == "" {
-					return nil, errors.New("missing tunnel authorization")
+	for _, companion := range []bool{false, true} {
+		t.Run(fmt.Sprint(companion), func(t *testing.T) {
+			stateDir := privateRemoteDesktopTempDir(t)
+			now := time.Date(2026, 8, 28, 12, 0, 0, 0, time.UTC)
+			runner := &fakeRemoteDesktopRunner{}
+			var peer net.Conn
+			var serverConn *websocket.Conn
+			serverReady := make(chan struct{})
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+				connection, upgradeErr := upgrader.Upgrade(writer, request, nil)
+				if upgradeErr != nil {
+					return
 				}
-				target := "ws" + strings.TrimPrefix(server.URL, "http")
-				connection, _, dialErr := websocket.DefaultDialer.DialContext(ctx, target, header)
-				return connection, dialErr
-			},
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	desired := testRemoteDesktopDesired(now, "start")
-	if result := manager.Apply(context.Background(), &desired); result.Result != "applied" {
-		t.Fatalf("start result = %#v", result)
-	}
-	select {
-	case <-serverReady:
-	case <-time.After(time.Second):
-		t.Fatal("device WSS did not connect before Apply returned")
-	}
-	if result := manager.Apply(context.Background(), &desired); result.Result != "applied" || !result.Noop {
-		t.Fatalf("same start result = %#v, want applied no-op", result)
-	}
-	if runner.count() != 1 {
-		t.Fatalf("same start spawned %d processes", runner.count())
-	}
-	if _, err := peer.Write([]byte("RFB")); err != nil {
-		t.Fatalf("raw peer write: %v", err)
-	}
-	if result := manager.Stop(); result.Result != "applied" {
-		t.Fatalf("stop result = %#v", result)
-	}
-	if result := manager.Stop(); result.Result != "applied" {
-		t.Fatalf("duplicate stop result = %#v", result)
-	}
-	if _, statErr := os.Stat(remoteDesktopConfigPath(stateDir)); !os.IsNotExist(statErr) {
-		t.Fatalf("stop left config: %v", statErr)
-	}
-	_ = peer.Close()
-	if serverConn != nil {
-		_ = serverConn.Close()
+				serverConn = connection
+				close(serverReady)
+				_, _, _ = connection.ReadMessage()
+			}))
+			defer server.Close()
+			manager, err := NewRemoteDesktopManager(RemoteDesktopManagerOptions{
+				StateDir: stateDir, InstanceURL: "https://control.example", Runner: runner,
+				Environment: []string{"XDG_RUNTIME_DIR=/run/user/1000", "WAYLAND_DISPLAY=wayland-1"},
+				Clock:       func() time.Time { return now }, WaitTimeout: time.Second,
+				Dialers: RemoteDesktopDialers{
+					TCP: func(context.Context, string, string) (net.Conn, error) {
+						local, remote := net.Pipe()
+						peer = remote
+						return local, nil
+					},
+					WSS: func(ctx context.Context, _ string, header http.Header) (*websocket.Conn, error) {
+						if header.Get("Authorization") == "" {
+							return nil, errors.New("missing tunnel authorization")
+						}
+						target := "ws" + strings.TrimPrefix(server.URL, "http")
+						connection, _, dialErr := websocket.DefaultDialer.DialContext(ctx, target, header)
+						return connection, dialErr
+					},
+				},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if companion {
+				manager.options.LocalStart = func(ctx context.Context, session WayVNCSession) (RemoteDesktopProcess, error) {
+					if session.SessionID != "remote-session" || session.Username != "nova-user" || session.Password != strings.Repeat("p", 32) {
+						t.Fatal("companion credentials changed")
+					}
+					return runner.Start(ctx, "/usr/bin/wayvnc", nil, nil)
+				}
+			}
+			desired := testRemoteDesktopDesired(now, "start")
+			if result := manager.Apply(context.Background(), &desired); result.Result != "applied" {
+				t.Fatalf("start result = %#v", result)
+			}
+			select {
+			case <-serverReady:
+			case <-time.After(time.Second):
+				t.Fatal("device WSS did not connect before Apply returned")
+			}
+			if result := manager.Apply(context.Background(), &desired); result.Result != "applied" || !result.Noop {
+				t.Fatalf("same start result = %#v, want applied no-op", result)
+			}
+			if runner.count() != 1 {
+				t.Fatalf("same start spawned %d processes", runner.count())
+			}
+			if _, err := peer.Write([]byte("RFB")); err != nil {
+				t.Fatalf("raw peer write: %v", err)
+			}
+			if result := manager.Stop(); result.Result != "applied" {
+				t.Fatalf("stop result = %#v", result)
+			}
+			if result := manager.Stop(); result.Result != "applied" {
+				t.Fatalf("duplicate stop result = %#v", result)
+			}
+			if _, statErr := os.Stat(remoteDesktopConfigPath(stateDir)); !os.IsNotExist(statErr) {
+				t.Fatalf("stop left config: %v", statErr)
+			}
+			_ = peer.Close()
+			if serverConn != nil {
+				_ = serverConn.Close()
+			}
+		})
 	}
 }
 

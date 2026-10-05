@@ -48,7 +48,7 @@ type PrinterReportAccepted struct {
 func PrinterReportCanonical(report PrinterReport) []byte {
 	return CanonicalV1(PrinterReportType,
 		CanonicalField{"version", "1"},
-		CanonicalField{"profile", ProvisionalIdentityProfile},
+		CanonicalField{"profile", report.Profile},
 		CanonicalField{"sessionId", report.SessionID},
 		CanonicalField{"deviceId", report.DeviceID},
 		CanonicalField{"reportHash", report.ReportHash},
@@ -65,7 +65,7 @@ func SignPrinterReport(identity Identity, report PrinterReport) (string, error) 
 }
 
 func ValidatePrinterReport(report PrinterReport, sessionID, deviceID string) error {
-	if report.Version != ProtocolVersion || report.Type != PrinterReportType || report.Profile != ProvisionalIdentityProfile || report.SessionID != sessionID || report.DeviceID != deviceID || report.Sequence == 0 {
+	if report.Version != ProtocolVersion || report.Type != PrinterReportType || !supportedIdentityProfile(report.Profile) || report.SessionID != sessionID || report.DeviceID != deviceID || report.Sequence == 0 {
 		return fmt.Errorf("printer report envelope is invalid")
 	}
 	if err := ValidateDeviceID(report.DeviceID); err != nil {
@@ -118,7 +118,7 @@ func (client Client) sendPrinterReport(ctx context.Context, state *State, identi
 	}
 	sequence := state.PrinterReportSequence + 1
 	envelope := PrinterReport{
-		Version: ProtocolVersion, Type: PrinterReportType, Profile: ProvisionalIdentityProfile,
+		Version: ProtocolVersion, Type: PrinterReportType, Profile: identity.Profile(),
 		SessionID: sessionID, DeviceID: state.DeviceID, Report: report, ReportHash: reportHash, Sequence: sequence,
 	}
 	envelope.Signature, err = SignPrinterReport(identity, envelope)

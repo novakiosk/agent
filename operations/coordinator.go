@@ -473,3 +473,41 @@ func validateOperationJournalForWrite(journal *operationJournal) error {
 	}
 	return nil
 }
+
+// RequireResolvedForRotation reads the journal without constructing an executor
+// or recovering/executing an interrupted operation. Rotation cannot discard an
+// operation whose outcome has not been accepted by the control plane.
+func RequireResolvedForRotation(stateDir string, now time.Time) error {
+	if err := validateStateDirectory(stateDir); err != nil {
+		return err
+	}
+	journal, err := loadOperationJournal(OperationJournalPath(stateDir), now)
+	if err != nil {
+		return err
+	}
+	if journal != nil && journal.Phase != PhaseResultAccepted {
+		return errors.New("resolve the outstanding operation through normal agent service before rotating identity")
+	}
+	return nil
+}
+
+// ValidateResolvedJournal validates descriptor-read migration data without
+// touching a path or performing interrupted-command recovery.
+func ValidateResolvedJournal(data []byte, now time.Time) error {
+	if len(data) > MaxOperationJournalBytes {
+		return errors.New("operation journal exceeds limit")
+	}
+	decoder := json.NewDecoder(strings.NewReader(string(data)))
+	decoder.DisallowUnknownFields()
+	var journal operationJournal
+	if decoder.Decode(&journal) != nil || decoder.Decode(new(any)) != io.EOF {
+		return errors.New("invalid operation journal")
+	}
+	if err := validateOperationJournal(journal, now); err != nil {
+		return err
+	}
+	if journal.Phase != PhaseResultAccepted {
+		return errors.New("resolve the outstanding operation before migrating identity")
+	}
+	return nil
+}

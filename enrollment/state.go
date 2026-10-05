@@ -1,7 +1,6 @@
 package enrollment
 
 import (
-	"crypto/ed25519"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -308,35 +307,7 @@ func Reset(stateDir string) error {
 // LoadIdentityForReset validates and reads the identity without performing the
 // legacy migration that LoadIdentity may perform. Reset must never rewrite the
 // identity as a side effect of displaying its device ID.
-func LoadIdentityForReset(stateDir string) (Identity, error) {
-	if strings.TrimSpace(stateDir) == "" {
-		return Identity{}, fmt.Errorf("state directory is required")
-	}
-	identityData, err := readSecureFile(IdentityPath(stateDir))
-	if errors.Is(err, fs.ErrNotExist) {
-		return Identity{}, fmt.Errorf("agent identity is required")
-	}
-	if err != nil {
-		return Identity{}, fmt.Errorf("inspect agent identity: %w", err)
-	}
-	var persisted persistedIdentity
-	if err := json.Unmarshal(identityData, &persisted); err != nil || persisted.Version != ProtocolVersion || persisted.Profile != ProvisionalIdentityProfile || persisted.DeviceID == "" {
-		return Identity{}, fmt.Errorf("agent identity is invalid")
-	}
-	privateKeyBytes, err := decodeRaw(persisted.PrivateKey, ed25519.PrivateKeySize)
-	if err != nil {
-		return Identity{}, fmt.Errorf("agent identity is invalid")
-	}
-	privateKey := ed25519.PrivateKey(privateKeyBytes)
-	publicRef, err := PublicIdentityRef(privateKey.Public().(ed25519.PublicKey))
-	if err != nil || publicRef != persisted.PublicIdentityRef {
-		return Identity{}, fmt.Errorf("agent identity is invalid")
-	}
-	if err := ValidateDeviceID(persisted.DeviceID); err != nil {
-		return Identity{}, fmt.Errorf("agent identity is invalid: %w", err)
-	}
-	return Identity{PrivateKey: privateKey, PublicIdentityRef: persisted.PublicIdentityRef, DeviceID: persisted.DeviceID}, nil
-}
+func LoadIdentityForReset(stateDir string) (Identity, error) { return InspectIdentity(stateDir) }
 
 func saveAtomic(stateDir, destination string, data []byte) error {
 	temporary, err := os.CreateTemp(stateDir, ".state-*.tmp")

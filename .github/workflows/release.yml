@@ -36,12 +36,18 @@ jobs:
         if: steps.version.outputs.build == 'true'
         with:
           go-version-file: go.mod
+      - name: Install TPM test simulator
+        if: steps.version.outputs.build == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends swtpm openssl
       - name: Check and package Linux x86_64
         if: steps.version.outputs.build == 'true'
         env:
           GOTOOLCHAIN: local
         run: |
-          test -z "$(gofmt -l cmd cupsjob cupsreconcile enrollment operations printer)"
+          test -z "$(gofmt -l .)"
+          command -v swtpm openssl
           go vet ./...
           go test -race ./...
           bash .github/scripts/build-release.sh

@@ -55,6 +55,9 @@ func (client Client) PrintBridge(ctx context.Context, options PrintBridgeOptions
 	if client.PrinterReconcileSupported && options.PrinterReconciler == nil {
 		return fmt.Errorf("printer reconciler is required")
 	}
+	if err := RequireOrdinaryAuthority(client.StateDir); err != nil {
+		return err
+	}
 	state, err := LoadState(client.StateDir)
 	if err != nil {
 		return err
@@ -69,6 +72,7 @@ func (client Client) PrintBridge(ctx context.Context, options PrintBridgeOptions
 	if err != nil {
 		return err
 	}
+	defer identity.Close()
 	if identity.DeviceID != state.DeviceID || state.PublicIdentityRef != identity.PublicIdentityRef {
 		return fmt.Errorf("managed state identity does not match local identity")
 	}
@@ -96,7 +100,7 @@ func (client Client) PrintBridge(ctx context.Context, options PrintBridgeOptions
 			sequence++
 			observedAt := client.now().UTC().Format(time.RFC3339Nano)
 			heartbeat := Heartbeat{
-				Version: ProtocolVersion, Type: "session.heartbeat", Profile: ProvisionalIdentityProfile,
+				Version: ProtocolVersion, Type: "session.heartbeat", Profile: identityProfile(state.PublicIdentityRef),
 				SessionID: accepted.SessionID, DeviceID: state.DeviceID, Sequence: sequence, ObservedAt: observedAt, DisplayMode: DisplayModeUnknown,
 			}
 			heartbeat.Signature, err = encodeIdentitySignature(identity, HeartbeatCanonical(heartbeat))

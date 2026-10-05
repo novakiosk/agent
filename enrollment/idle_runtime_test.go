@@ -948,3 +948,36 @@ func TestIdleAssetCleanupRetriesAndDoesNotFollowSymlinks(t *testing.T) {
 		t.Fatalf("unassignment failed to preserve unrelated file: %v %v", files, err)
 	}
 }
+
+type lifecycleIdleRunner struct {
+	fakeIdleRunner
+	ctx context.Context
+}
+
+func (runner *lifecycleIdleRunner) Start(ctx context.Context, name string, args, env []string) (idleProcess, error) {
+	runner.ctx = ctx
+	return runner.fakeIdleRunner.Start(ctx, name, args, env)
+}
+func TestIdleSupervisorOutlivesApplyLease(t *testing.T) {
+	lifetime, disconnect := context.WithCancel(context.Background())
+	defer disconnect()
+	operation, complete := context.WithCancel(lifetime)
+	runner := &lifecycleIdleRunner{}
+	runtime, err := NewSwayIdleRuntime(IdleRuntimeOptions{StateDir: t.TempDir(), LifecycleContext: lifetime, CommandRunner: runner, environment: []string{"XDG_RUNTIME_DIR=/run/user/967", "WAYLAND_DISPLAY=wayland-1", "SWAYSOCK=/run/user/967/sway-ipc.sock"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Close()
+	desired := testIdleDesired(t)
+	if err := runtime.Apply(operation, &desired); err != nil {
+		t.Fatal(err)
+	}
+	complete()
+	if runner.ctx.Err() != nil {
+		t.Fatal("successful Apply lease killed persistent supervisor")
+	}
+	disconnect()
+	if runner.ctx.Err() == nil {
+		t.Fatal("disconnect did not cancel persistent supervisor")
+	}
+}

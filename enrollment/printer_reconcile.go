@@ -98,7 +98,7 @@ func (client Client) receiveApplyAndAcknowledgePrinterDesired(ctx context.Contex
 func (client Client) sendPrinterReconcileAck(ctx context.Context, state *State, identity Identity, connection *websocket.Conn, sessionID, desiredHash string, result cupsreconcile.HelperResult, version int) error {
 	state.PrinterAckSequence++
 	observedAt := client.now().UTC().Format(time.RFC3339Nano)
-	ack := cupsreconcile.Ack{Version: version, Type: cupsreconcile.AckType, Profile: ProvisionalIdentityProfile, SessionID: sessionID, DeviceID: state.DeviceID, DesiredHash: desiredHash, Result: result.Result, ErrorCategory: result.ErrorCategory, ObservedAt: observedAt, Sequence: state.PrinterAckSequence}
+	ack := cupsreconcile.Ack{Version: version, Type: cupsreconcile.AckType, Profile: identity.Profile(), SessionID: sessionID, DeviceID: state.DeviceID, DesiredHash: desiredHash, Result: result.Result, ErrorCategory: result.ErrorCategory, ObservedAt: observedAt, Sequence: state.PrinterAckSequence}
 	canonical := cupsreconcile.AckCanonical(ack)
 	if version == cupsreconcile.Version2 {
 		canonical = cupsreconcile.AckCanonicalV2(ack)

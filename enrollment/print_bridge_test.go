@@ -93,58 +93,63 @@ func TestPrintBridgeRequiresAdvertisedReconciler(t *testing.T) {
 }
 
 func TestPrintBridgeReportsPrintersOnNullSnapshot(t *testing.T) {
-	fixture, client, _ := newRunFixture(t, false, false)
-	fixture.state.DeviceKind = DeviceKindPrintServer
-	fixture.nullDesired = true
-	if err := SaveStateAtomic(fixture.stateDir, fixture.state); err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() {
-		done <- client.PrintBridge(ctx, PrintBridgeOptions{HeartbeatInterval: time.Millisecond, ReconnectDelay: time.Millisecond, PrinterReporter: bridgeReporter()})
-	}()
-	select {
-	case report := <-fixture.printerReports:
-		if report.Sequence != 1 || report.DeviceID != fixture.state.DeviceID {
-			t.Fatalf("printer report = %+v", report)
-		}
-	case <-time.After(3 * time.Second):
-		t.Fatal("timed out waiting for signed printer report")
-	}
-	deadline := time.NewTimer(3 * time.Second)
-	ticker := time.NewTicker(10 * time.Millisecond)
-	defer deadline.Stop()
-	defer ticker.Stop()
-	for {
-		state, err := LoadState(fixture.stateDir)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if state.LastPrinterReportAccepted && state.PrinterReportSequence == 1 {
-			break
-		}
-		select {
-		case <-ticker.C:
-		case <-deadline.C:
-			t.Fatal("timed out waiting for printer report acceptance")
-		}
-	}
-	cancel()
-	select {
-	case err := <-done:
-		if !errors.Is(err, context.Canceled) {
-			t.Fatalf("PrintBridge error = %v, want context cancellation", err)
-		}
-	case <-time.After(3 * time.Second):
-		t.Fatal("PrintBridge did not stop after cancellation")
-	}
-	state, err := LoadState(fixture.stateDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !state.LastPrinterReportAccepted || state.PrinterReportSequence != 1 {
-		t.Fatalf("printer report state = %+v", state)
+	for _, p256 := range []bool{false, true} {
+		t.Run(fmt.Sprint(p256), func(t *testing.T) {
+			fixture, client, _ := newRunFixture(t, false, false, p256)
+			fixture.state.DeviceKind = DeviceKindPrintServer
+			fixture.nullDesired = true
+			if err := SaveStateAtomic(fixture.stateDir, fixture.state); err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithCancel(context.Background())
+			done := make(chan error, 1)
+			go func() {
+				done <- client.PrintBridge(ctx, PrintBridgeOptions{HeartbeatInterval: time.Millisecond, ReconnectDelay: time.Millisecond, PrinterReporter: bridgeReporter()})
+			}()
+			select {
+			case report := <-fixture.printerReports:
+				if report.Sequence != 1 || report.DeviceID != fixture.state.DeviceID {
+					t.Fatalf("printer report = %+v", report)
+				}
+			case <-time.After(3 * time.Second):
+				t.Fatal("timed out waiting for signed printer report")
+			}
+			deadline := time.NewTimer(3 * time.Second)
+			ticker := time.NewTicker(10 * time.Millisecond)
+			defer deadline.Stop()
+			defer ticker.Stop()
+			for {
+				state, err := LoadState(fixture.stateDir)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if state.LastPrinterReportAccepted && state.PrinterReportSequence == 1 {
+					break
+				}
+				select {
+				case <-ticker.C:
+				case <-deadline.C:
+					t.Fatal("timed out waiting for printer report acceptance")
+				}
+			}
+			cancel()
+			select {
+			case err := <-done:
+				if !errors.Is(err, context.Canceled) {
+					t.Fatalf("PrintBridge error = %v, want context cancellation", err)
+				}
+			case <-time.After(3 * time.Second):
+				t.Fatal("PrintBridge did not stop after cancellation")
+			}
+			state, err := LoadState(fixture.stateDir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !state.LastPrinterReportAccepted || state.PrinterReportSequence != 1 {
+				t.Fatalf("printer report state = %+v", state)
+			}
+
+		})
 	}
 }
 

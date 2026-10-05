@@ -33,6 +33,8 @@ type Browser interface {
 type BrowserFactory func(context.Context, string) (Browser, error)
 
 type ChromiumOptions struct {
+	// LifecycleContext owns Chromium independently of bounded startup work.
+	LifecycleContext        context.Context
 	Binary                  string
 	UserDataDir             string
 	ExtraArgs               []string
@@ -134,7 +136,11 @@ func NewChromiumBrowser(ctx context.Context, options ChromiumOptions) (Browser, 
 		return nil, fmt.Errorf("create Chromium response pipe: %w", err)
 	}
 	args := chromiumArguments(options)
-	command := exec.CommandContext(ctx, options.Binary, args...)
+	lifetime := ctx
+	if options.LifecycleContext != nil {
+		lifetime = options.LifecycleContext
+	}
+	command := exec.CommandContext(lifetime, options.Binary, args...)
 	environment, envErr := browserEnvironment(options)
 	if envErr != nil {
 		_ = commandRead.Close()

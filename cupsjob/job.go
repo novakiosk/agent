@@ -147,9 +147,9 @@ type CancelClient struct {
 func ProfilePaths(profile string) (stateDir, manifestDir string, ok bool) {
 	switch profile {
 	case "kiosk":
-		return "/var/lib/novakiosk-agent", "/var/lib/novakiosk-cups-helper", true
+		return "/var/lib/novakiosk-agentd-helpers/kiosk", "/var/lib/novakiosk-cups-helper", true
 	case "print-bridge":
-		return "/var/lib/novakiosk-print-bridge", "/var/lib/novakiosk-cups-helper", true
+		return "/var/lib/novakiosk-agentd-helpers/print-bridge", "/var/lib/novakiosk-cups-helper", true
 	default:
 		return "", "", false
 	}

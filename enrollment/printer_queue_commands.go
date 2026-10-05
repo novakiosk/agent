@@ -64,7 +64,7 @@ type PrinterQueueCommandAccepted struct {
 
 func PrinterQueueCommandCanonical(command PrinterQueueCommand) []byte {
 	return CanonicalV1("printer.queue.command",
-		CanonicalField{"version", "1"}, CanonicalField{"profile", ProvisionalIdentityProfile},
+		CanonicalField{"version", "1"}, CanonicalField{"profile", command.Profile},
 		CanonicalField{"commandId", command.CommandID}, CanonicalField{"action", command.Action},
 		CanonicalField{"authorityKind", command.AuthorityKind}, CanonicalField{"authorityId", command.AuthorityID},
 		CanonicalField{"queueName", command.QueueName}, CanonicalField{"issuedAt", command.IssuedAt}, CanonicalField{"expiresAt", command.ExpiresAt})
@@ -84,7 +84,7 @@ func PrinterQueueCommandResultCanonical(result PrinterQueueCommandResult) []byte
 		affectedJobs = fmt.Sprintf("%d", *result.AffectedJobs)
 	}
 	return CanonicalV1("printer.queue.command.result",
-		CanonicalField{"version", "1"}, CanonicalField{"profile", ProvisionalIdentityProfile},
+		CanonicalField{"version", "1"}, CanonicalField{"profile", result.Profile},
 		CanonicalField{"sessionId", result.SessionID}, CanonicalField{"deviceId", result.DeviceID}, CanonicalField{"commandId", result.CommandID},
 		CanonicalField{"action", result.Action}, CanonicalField{"authorityKind", result.AuthorityKind}, CanonicalField{"authorityId", result.AuthorityID},
 		CanonicalField{"queueName", result.QueueName}, CanonicalField{"payloadHash", result.PayloadHash}, CanonicalField{"result", result.Result},
@@ -97,7 +97,7 @@ func validPrinterQueueAction(action string) bool {
 }
 
 func (command PrinterQueueCommand) Validate(now time.Time, allowExpired bool) error {
-	if command.Version != ProtocolVersion || command.Type != "printer.queue.command" || command.Profile != ProvisionalIdentityProfile || !printerJobCommandUUID.MatchString(command.CommandID) || !validPrinterQueueAction(command.Action) || (command.AuthorityKind != "managed-wireless" && command.AuthorityKind != "kiosk-usb") || !validPrinterJobCommandText(command.AuthorityID, 128) || !cupsjob.SafeQueueName(command.QueueName) {
+	if command.Version != ProtocolVersion || command.Type != "printer.queue.command" || !supportedIdentityProfile(command.Profile) || !printerJobCommandUUID.MatchString(command.CommandID) || !validPrinterQueueAction(command.Action) || (command.AuthorityKind != "managed-wireless" && command.AuthorityKind != "kiosk-usb") || !validPrinterJobCommandText(command.AuthorityID, 128) || !cupsjob.SafeQueueName(command.QueueName) {
 		return fmt.Errorf("printer queue command identity is invalid")
 	}
 	issued, err := parsePrinterJobCommandTimestamp(command.IssuedAt)
@@ -118,7 +118,7 @@ func (command PrinterQueueCommand) Validate(now time.Time, allowExpired bool) er
 }
 
 func (result PrinterQueueCommandResult) Validate() error {
-	if result.Version != ProtocolVersion || result.Type != "printer.queue.command.result" || result.Profile != ProvisionalIdentityProfile || !validPrinterJobCommandText(result.SessionID, 128) || !validPrinterJobCommandText(result.DeviceID, 128) || !printerJobCommandUUID.MatchString(result.CommandID) || !validPrinterQueueAction(result.Action) || (result.AuthorityKind != "managed-wireless" && result.AuthorityKind != "kiosk-usb") || !validPrinterJobCommandText(result.AuthorityID, 128) || !cupsjob.SafeQueueName(result.QueueName) || !printerJobCommandHashPattern.MatchString(result.PayloadHash) || (result.Result != cupsjob.ResultApplied && result.Result != cupsjob.ResultFailed) || result.ObservedAt == "" || result.Sequence == 0 || result.Signature == "" || len(result.Signature) > 256 {
+	if result.Version != ProtocolVersion || result.Type != "printer.queue.command.result" || !supportedIdentityProfile(result.Profile) || !validPrinterJobCommandText(result.SessionID, 128) || !validPrinterJobCommandText(result.DeviceID, 128) || !printerJobCommandUUID.MatchString(result.CommandID) || !validPrinterQueueAction(result.Action) || (result.AuthorityKind != "managed-wireless" && result.AuthorityKind != "kiosk-usb") || !validPrinterJobCommandText(result.AuthorityID, 128) || !cupsjob.SafeQueueName(result.QueueName) || !printerJobCommandHashPattern.MatchString(result.PayloadHash) || (result.Result != cupsjob.ResultApplied && result.Result != cupsjob.ResultFailed) || result.ObservedAt == "" || result.Sequence == 0 || result.Signature == "" || len(result.Signature) > 256 {
 		return fmt.Errorf("printer queue command result is invalid")
 	}
 	if result.Action == cupsjob.ActionCancelAll {
@@ -165,7 +165,7 @@ func (client Client) applyPrinterQueueCommand(ctx context.Context, state *State,
 		return nil
 	}
 	sameCommand := state.LastPrinterQueueCommandID == command.CommandID && state.LastPrinterQueueCommandHash == command.PayloadHash
-	if err := command.Validate(client.now(), sameCommand); err != nil || !validPrinterQueueAuthorityForKind(*command, EffectiveDeviceKind(state.DeviceKind)) {
+	if err := command.Validate(client.now(), sameCommand); err != nil || command.Profile != identity.Profile() || !validPrinterQueueAuthorityForKind(*command, EffectiveDeviceKind(state.DeviceKind)) {
 		return fmt.Errorf("printer queue command is invalid")
 	}
 	if sameCommand && state.LastPrinterQueueCommandAccepted {
@@ -208,7 +208,7 @@ func (client Client) applyPrinterQueueCommand(ctx context.Context, state *State,
 	}
 	var result PrinterQueueCommandResult
 	if replaying {
-		result = PrinterQueueCommandResult{Version: ProtocolVersion, Type: "printer.queue.command.result", Profile: ProvisionalIdentityProfile, SessionID: snapshot.SessionID, DeviceID: state.DeviceID, CommandID: command.CommandID, Action: command.Action, AuthorityKind: command.AuthorityKind, AuthorityID: command.AuthorityID, QueueName: command.QueueName, PayloadHash: command.PayloadHash, Result: state.LastPrinterQueueCommandResult, ObservedAt: state.LastPrinterQueueCommandAt, Sequence: state.PrinterQueueCommandSequence}
+		result = PrinterQueueCommandResult{Version: ProtocolVersion, Type: "printer.queue.command.result", Profile: identity.Profile(), SessionID: snapshot.SessionID, DeviceID: state.DeviceID, CommandID: command.CommandID, Action: command.Action, AuthorityKind: command.AuthorityKind, AuthorityID: command.AuthorityID, QueueName: command.QueueName, PayloadHash: command.PayloadHash, Result: state.LastPrinterQueueCommandResult, ObservedAt: state.LastPrinterQueueCommandAt, Sequence: state.PrinterQueueCommandSequence}
 		if state.LastPrinterQueueCommandError != "" {
 			category := state.LastPrinterQueueCommandError
 			result.ErrorCategory = &category
@@ -221,7 +221,7 @@ func (client Client) applyPrinterQueueCommand(ctx context.Context, state *State,
 		// Persist a conservative outcome before the helper can affect jobs.
 		// A crash or failed final save replays this failure at the same sequence.
 		category := cupsjob.ErrorHelper
-		result = PrinterQueueCommandResult{Version: ProtocolVersion, Type: "printer.queue.command.result", Profile: ProvisionalIdentityProfile, SessionID: snapshot.SessionID, DeviceID: state.DeviceID, CommandID: command.CommandID, Action: command.Action, AuthorityKind: command.AuthorityKind, AuthorityID: command.AuthorityID, QueueName: command.QueueName, PayloadHash: command.PayloadHash, Result: cupsjob.ResultFailed, ErrorCategory: &category, ObservedAt: client.now().UTC().Format(time.RFC3339Nano), Sequence: state.PrinterQueueCommandSequence + 1}
+		result = PrinterQueueCommandResult{Version: ProtocolVersion, Type: "printer.queue.command.result", Profile: identity.Profile(), SessionID: snapshot.SessionID, DeviceID: state.DeviceID, CommandID: command.CommandID, Action: command.Action, AuthorityKind: command.AuthorityKind, AuthorityID: command.AuthorityID, QueueName: command.QueueName, PayloadHash: command.PayloadHash, Result: cupsjob.ResultFailed, ErrorCategory: &category, ObservedAt: client.now().UTC().Format(time.RFC3339Nano), Sequence: state.PrinterQueueCommandSequence + 1}
 		if command.Action == cupsjob.ActionCancelAll {
 			zero := uint64(0)
 			result.AffectedJobs = &zero

@@ -97,14 +97,16 @@ func (execIdleCommandRunner) Start(ctx context.Context, name string, args, envir
 }
 
 type IdleRuntimeOptions struct {
-	StateDir       string
-	SwayidleBinary string
-	AgentBinary    string
-	ChromiumBinary string
-	CommandRunner  idleCommandRunner
-	InstanceURL    string
-	CAPath         string
-	HTTPClient     *http.Client
+	// LifecycleContext owns the persistent supervisor separately from bounded Apply work.
+	LifecycleContext context.Context
+	StateDir         string
+	SwayidleBinary   string
+	AgentBinary      string
+	ChromiumBinary   string
+	CommandRunner    idleCommandRunner
+	InstanceURL      string
+	CAPath           string
+	HTTPClient       *http.Client
 	// environment is a deterministic test seam. Production resolves and
 	// validates the kiosk's current Wayland and Sway sockets.
 	environment []string
@@ -850,6 +852,9 @@ func (runtime *SwayIdleRuntime) startSwayidle(ctx context.Context, timeout uint6
 		command += " --chromium " + idleShellQuote(runtime.options.ChromiumBinary)
 	}
 	swayArgs := []string{"-w", "timeout", strconv.FormatUint(timeout, 10), command}
+	if runtime.options.LifecycleContext != nil {
+		ctx = runtime.options.LifecycleContext
+	}
 	process, err := runtime.runner.Start(ctx, runtime.options.SwayidleBinary, swayArgs, environment)
 	if err != nil {
 		return fmt.Errorf("idle inactivity supervisor unavailable: %w", err)

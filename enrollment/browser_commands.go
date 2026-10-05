@@ -55,7 +55,7 @@ func BrowserCommandCanonical(command BrowserCommand) []byte {
 		zoom = fmt.Sprintf("%d", *command.ZoomPercent)
 	}
 	return CanonicalV1(BrowserCommandType,
-		CanonicalField{"version", "1"}, CanonicalField{"profile", ProvisionalIdentityProfile},
+		CanonicalField{"version", "1"}, CanonicalField{"profile", command.Profile},
 		CanonicalField{"commandId", command.CommandID}, CanonicalField{"action", command.Action},
 		CanonicalField{"zoomPercent", zoom}, CanonicalField{"issuedAt", command.IssuedAt}, CanonicalField{"expiresAt", command.ExpiresAt})
 }
@@ -75,7 +75,7 @@ func BrowserCommandResultCanonical(result BrowserCommandResult) []byte {
 		zoom = fmt.Sprintf("%d", *result.ZoomPercent)
 	}
 	return CanonicalV1(BrowserCommandResultType,
-		CanonicalField{"version", "1"}, CanonicalField{"profile", ProvisionalIdentityProfile},
+		CanonicalField{"version", "1"}, CanonicalField{"profile", result.Profile},
 		CanonicalField{"sessionId", result.SessionID}, CanonicalField{"deviceId", result.DeviceID}, CanonicalField{"commandId", result.CommandID},
 		CanonicalField{"action", result.Action}, CanonicalField{"payloadHash", result.PayloadHash}, CanonicalField{"result", result.Result},
 		CanonicalField{"errorCategory", err}, CanonicalField{"observedUrl", result.ObservedURL}, CanonicalField{"zoomPercent", zoom},
@@ -83,7 +83,7 @@ func BrowserCommandResultCanonical(result BrowserCommandResult) []byte {
 }
 
 func (command BrowserCommand) Validate(now time.Time, allowExpired bool) error {
-	if command.Version != ProtocolVersion || command.Type != BrowserCommandType || command.Profile != ProvisionalIdentityProfile || !browserCommandUUID.MatchString(command.CommandID) {
+	if command.Version != ProtocolVersion || command.Type != BrowserCommandType || !supportedIdentityProfile(command.Profile) || !browserCommandUUID.MatchString(command.CommandID) {
 		return fmt.Errorf("browser command identity is invalid")
 	}
 	if command.Action != "reload" && command.Action != "return-to-assigned" && command.Action != "set-zoom" && command.Action != "restart-browser" {
@@ -114,7 +114,7 @@ func (command BrowserCommand) Validate(now time.Time, allowExpired bool) error {
 }
 
 func (result BrowserCommandResult) Validate() error {
-	if result.Version != ProtocolVersion || result.Type != BrowserCommandResultType || result.Profile != ProvisionalIdentityProfile || result.SessionID == "" || len(result.SessionID) > 128 || result.DeviceID == "" || len(result.DeviceID) > 128 || !browserCommandUUID.MatchString(result.CommandID) || (result.Result != "applied" && result.Result != "failed") || result.ObservedAt == "" || result.Sequence == 0 || len(result.ObservedURL) > 2048 {
+	if result.Version != ProtocolVersion || result.Type != BrowserCommandResultType || !supportedIdentityProfile(result.Profile) || result.SessionID == "" || len(result.SessionID) > 128 || result.DeviceID == "" || len(result.DeviceID) > 128 || !browserCommandUUID.MatchString(result.CommandID) || (result.Result != "applied" && result.Result != "failed") || result.ObservedAt == "" || result.Sequence == 0 || len(result.ObservedURL) > 2048 {
 		return fmt.Errorf("browser command result is invalid")
 	}
 	if result.Action != "reload" && result.Action != "return-to-assigned" && result.Action != "set-zoom" && result.Action != "restart-browser" {

@@ -38,6 +38,8 @@ type Client struct {
 	// doer is a narrow package-internal test seam. Production clients leave it nil so the
 	// strict system-trust/explicit-CA transport below is always used.
 	doer httpDoer
+	// rotationCheckpoint injects a stopped process after a durable boundary in tests.
+	rotationCheckpoint func(string) error
 }
 
 type httpDoer interface {
@@ -206,7 +208,7 @@ func (client Client) Enroll(ctx context.Context, options EnrollOptions) (State, 
 		proofKind := options.ProofKind
 		if options.Identity != nil {
 			publicIdentityRef = options.Identity.PublicIdentityRef
-			proofKind = ProvisionalIdentityProfile
+			proofKind = options.Identity.Profile()
 		}
 		request = Request{
 			Version:           ProtocolVersion,

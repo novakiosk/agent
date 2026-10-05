@@ -30,6 +30,11 @@ websocket_root=$(go list -m -f '{{.Dir}}' github.com/gorilla/websocket)
 cp "$go_root/LICENSE" "$package/licenses/Go-LICENSE"
 cp "$go_root/PATENTS" "$package/licenses/Go-PATENTS"
 cp "$websocket_root/LICENSE" "$package/licenses/Gorilla-WebSocket-LICENSE"
+tpm_root=$(go list -m -f '{{.Dir}}' github.com/google/go-tpm)
+sys_root=$(go list -m -f '{{.Dir}}' golang.org/x/sys)
+cp "$tpm_root/LICENSE" "$package/licenses/Go-TPM-LICENSE"
+cp "$sys_root/LICENSE" "$package/licenses/Go-x-sys-LICENSE"
+cp "$sys_root/PATENTS" "$package/licenses/Go-x-sys-PATENTS"
 {
   printf 'NOVA Kiosk Agent %s\nSource revision: %s\nSource epoch: %s\n' "$version" "$revision" "$epoch"
   printf 'Target: linux/amd64 (x86-64-v1), CGO_ENABLED=0\n'

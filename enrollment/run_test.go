@@ -188,9 +188,15 @@ type runFixture struct {
 	remotePollIntervalMs         int
 }
 
-func newRunFixture(t *testing.T, closeFirst, closeAfterAck bool) (*runFixture, Client, *testTLSServer) {
+func newRunFixture(t *testing.T, closeFirst, closeAfterAck bool, p256 ...bool) (*runFixture, Client, *testTLSServer) {
 	t.Helper()
+	stateDir := filepath.Join(t.TempDir(), "agent-state")
 	identity, err := GenerateIdentity()
+	if len(p256) > 0 && p256[0] {
+		identity, err = CreateSoftwareIdentity(stateDir, "opaque:device-01")
+	} else if err == nil {
+		err = SaveIdentityAtomic(stateDir, identity)
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,10 +206,6 @@ func newRunFixture(t *testing.T, closeFirst, closeAfterAck bool) (*runFixture, C
 		Version: ProtocolVersion, Status: "Managed", InstanceURL: server.URL, EnrollmentID: "enrollment-1",
 		DeviceID: identity.DeviceID, PublicIdentityRef: identity.PublicIdentityRef, IdentityBindingID: "binding-1",
 		SessionID: "previous-session", HeartbeatSequence: 1, LastHeartbeatAt: "2026-08-24T12:00:00Z",
-	}
-	stateDir := filepath.Join(t.TempDir(), "agent-state")
-	if err := SaveIdentityAtomic(stateDir, identity); err != nil {
-		t.Fatal(err)
 	}
 	if err := SaveStateAtomic(stateDir, fixture.state); err != nil {
 		t.Fatal(err)
@@ -469,7 +471,7 @@ func (fixture *runFixture) handshake(connection *websocket.Conn, number int) (se
 		return sessionAccepted{}, fmt.Errorf("printer reconcile capability missing")
 	}
 	sessionID := fmt.Sprintf("session-%d", number)
-	challenge := sessionChallenge{Version: ProtocolVersion, Type: "session.challenge", Profile: ProvisionalIdentityProfile, SessionID: sessionID, ChallengeID: "challenge-" + fmt.Sprint(number), EnrollmentID: fixture.state.EnrollmentID, IdentityBindingID: fixture.state.IdentityBindingID, DeviceID: fixture.state.DeviceID, PublicIdentityRef: fixture.identity.PublicIdentityRef, Nonce: "nonce-" + fmt.Sprint(number), Audience: fixture.state.InstanceURL, ExpiresAt: "2099-01-01T00:00:00Z"}
+	challenge := sessionChallenge{Version: ProtocolVersion, Type: "session.challenge", Profile: fixture.identity.Profile(), SessionID: sessionID, ChallengeID: "challenge-" + fmt.Sprint(number), EnrollmentID: fixture.state.EnrollmentID, IdentityBindingID: fixture.state.IdentityBindingID, DeviceID: fixture.state.DeviceID, PublicIdentityRef: fixture.identity.PublicIdentityRef, Nonce: "nonce-" + fmt.Sprint(number), Audience: fixture.state.InstanceURL, ExpiresAt: "2099-01-01T00:00:00Z"}
 	if err := writeSessionMessage(connection, challenge, time.Second); err != nil {
 		return sessionAccepted{}, err
 	}
@@ -481,7 +483,7 @@ func (fixture *runFixture) handshake(connection *websocket.Conn, number int) (se
 	if err := decodeStrict(data, &response); err != nil || response.Type != "session.challenge.response" || !VerifySignature(fixture.identity.PublicIdentityRef, ChallengeCanonical(response), response.Signature) {
 		return sessionAccepted{}, fmt.Errorf("invalid challenge response")
 	}
-	accepted := sessionAccepted{Version: ProtocolVersion, Type: "session.accepted", Profile: ProvisionalIdentityProfile, SessionID: sessionID, EnrollmentID: fixture.state.EnrollmentID, IdentityBindingID: fixture.state.IdentityBindingID, DeviceID: fixture.state.DeviceID}
+	accepted := sessionAccepted{Version: ProtocolVersion, Type: "session.accepted", Profile: fixture.identity.Profile(), SessionID: sessionID, EnrollmentID: fixture.state.EnrollmentID, IdentityBindingID: fixture.state.IdentityBindingID, DeviceID: fixture.state.DeviceID}
 	if err := writeSessionMessage(connection, accepted, time.Second); err != nil {
 		return sessionAccepted{}, err
 	}
@@ -599,35 +601,40 @@ func waitForRuntimeAck(t *testing.T, fixture *runFixture, result <-chan error, e
 }
 
 func TestRunSwayRuntimeAppliesOnceAndDoesNotACKRepeatSnapshots(t *testing.T) {
-	fixture, client, _ := newRunFixture(t, false, false)
-	fixture.runtime = runtimeRunFixtureArtifact()
-	applier := &fakeRuntimeApplier{}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	result := make(chan error, 1)
-	go func() {
-		result <- client.Run(ctx, RunOptions{RuntimeMode: "sway", RuntimeApplier: applier, HeartbeatInterval: 10 * time.Millisecond, ReconnectDelay: 5 * time.Millisecond})
-	}()
-	ack := waitForRuntimeAck(t, fixture, result, 1)
-	if ack.Result != "applied" || ack.ErrorCategory != nil {
-		t.Fatalf("runtime ACK = %+v", ack)
-	}
-	select {
-	case <-fixture.heartbeats:
-	case <-time.After(3 * time.Second):
-		t.Fatal("timed out waiting for a repeat heartbeat")
-	}
-	select {
-	case duplicate := <-fixture.runtimeAcks:
-		t.Fatalf("accepted runtime artifact was ACKed again: %+v", duplicate)
-	case <-time.After(100 * time.Millisecond):
-	}
-	cancel()
-	if err := <-result; !errors.Is(err, context.Canceled) {
-		t.Fatalf("Sway run error = %v", err)
-	}
-	if got := applier.calls.Load(); got != 1 {
-		t.Fatalf("runtime apply calls = %d, want one", got)
+	for _, p256 := range []bool{false, true} {
+		t.Run(fmt.Sprint(p256), func(t *testing.T) {
+			fixture, client, _ := newRunFixture(t, false, false, p256)
+			fixture.runtime = runtimeRunFixtureArtifact()
+			applier := &fakeRuntimeApplier{}
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			result := make(chan error, 1)
+			go func() {
+				result <- client.Run(ctx, RunOptions{RuntimeMode: "sway", RuntimeApplier: applier, HeartbeatInterval: 10 * time.Millisecond, ReconnectDelay: 5 * time.Millisecond})
+			}()
+			ack := waitForRuntimeAck(t, fixture, result, 1)
+			if ack.Result != "applied" || ack.ErrorCategory != nil {
+				t.Fatalf("runtime ACK = %+v", ack)
+			}
+			select {
+			case <-fixture.heartbeats:
+			case <-time.After(3 * time.Second):
+				t.Fatal("timed out waiting for a repeat heartbeat")
+			}
+			select {
+			case duplicate := <-fixture.runtimeAcks:
+				t.Fatalf("accepted runtime artifact was ACKed again: %+v", duplicate)
+			case <-time.After(100 * time.Millisecond):
+			}
+			cancel()
+			if err := <-result; !errors.Is(err, context.Canceled) {
+				t.Fatalf("Sway run error = %v", err)
+			}
+			if got := applier.calls.Load(); got != 1 {
+				t.Fatalf("runtime apply calls = %d, want one", got)
+			}
+
+		})
 	}
 }
 
@@ -998,66 +1005,71 @@ func TestRunSwayFailedRuntimeTransitionKeepsWorkingBrowser(t *testing.T) {
 }
 
 func TestRunKeepsOneAuthenticatedSocketAcrossHeartbeats(t *testing.T) {
-	fixture, client, _ := newRunFixture(t, false, false)
-	browser := NewFakeBrowser(nil)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	result := make(chan error, 1)
-	go func() {
-		result <- client.Run(ctx, RunOptions{HeartbeatInterval: 10 * time.Millisecond, ReconnectDelay: 5 * time.Millisecond, BrowserFactory: func(context.Context, string) (Browser, error) { return browser, nil }})
-	}()
-	select {
-	case count := <-fixture.heartbeats:
-		if count != 1 {
-			t.Fatalf("first heartbeat number = %d", count)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for first heartbeat")
-	}
-	select {
-	case ack := <-fixture.acks:
-		if ack.Result != "applied" {
-			t.Fatalf("first ACK = %+v", ack)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for first ACK")
-	}
-	select {
-	case count := <-fixture.heartbeats:
-		if count != 2 {
-			t.Fatalf("second heartbeat number = %d", count)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for second heartbeat")
-	}
-	deadline := time.Now().Add(2 * time.Second)
-	for {
-		state, err := LoadState(client.StateDir)
-		if err == nil && state.HeartbeatSequence >= 3 {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("heartbeat state was not persisted: %+v (%v)", state, err)
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-	cancel()
-	if err := <-result; !errors.Is(err, context.Canceled) {
-		t.Fatalf("Run error = %v, want context cancellation", err)
-	}
-	if got := fixture.handshakes.Load(); got != 1 {
-		t.Fatalf("handshakes = %d, want one persistent session", got)
-	}
-	browser.Mu.Lock()
-	history := append([]string(nil), browser.History...)
-	browser.Mu.Unlock()
-	if len(history) != 1 {
-		t.Fatalf("browser navigations = %d, want one", len(history))
-	}
-	select {
-	case extra := <-fixture.acks:
-		t.Fatalf("same applied revision was ACKed again: %+v", extra)
-	default:
+	for _, p256 := range []bool{false, true} {
+		t.Run(fmt.Sprint(p256), func(t *testing.T) {
+			fixture, client, _ := newRunFixture(t, false, false, p256)
+			browser := NewFakeBrowser(nil)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			result := make(chan error, 1)
+			go func() {
+				result <- client.Run(ctx, RunOptions{HeartbeatInterval: 10 * time.Millisecond, ReconnectDelay: 5 * time.Millisecond, BrowserFactory: func(context.Context, string) (Browser, error) { return browser, nil }})
+			}()
+			select {
+			case count := <-fixture.heartbeats:
+				if count != 1 {
+					t.Fatalf("first heartbeat number = %d", count)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("timed out waiting for first heartbeat")
+			}
+			select {
+			case ack := <-fixture.acks:
+				if ack.Result != "applied" {
+					t.Fatalf("first ACK = %+v", ack)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("timed out waiting for first ACK")
+			}
+			select {
+			case count := <-fixture.heartbeats:
+				if count != 2 {
+					t.Fatalf("second heartbeat number = %d", count)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("timed out waiting for second heartbeat")
+			}
+			deadline := time.Now().Add(2 * time.Second)
+			for {
+				state, err := LoadState(client.StateDir)
+				if err == nil && state.HeartbeatSequence >= 3 {
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatalf("heartbeat state was not persisted: %+v (%v)", state, err)
+				}
+				time.Sleep(5 * time.Millisecond)
+			}
+			cancel()
+			if err := <-result; !errors.Is(err, context.Canceled) {
+				t.Fatalf("Run error = %v, want context cancellation", err)
+			}
+			if got := fixture.handshakes.Load(); got != 1 {
+				t.Fatalf("handshakes = %d, want one persistent session", got)
+			}
+			browser.Mu.Lock()
+			history := append([]string(nil), browser.History...)
+			browser.Mu.Unlock()
+			if len(history) != 1 {
+				t.Fatalf("browser navigations = %d, want one", len(history))
+			}
+			select {
+			case extra := <-fixture.acks:
+				t.Fatalf("same applied revision was ACKed again: %+v", extra)
+			default:
+			}
+
+		})
 	}
 }
 
@@ -1467,7 +1479,7 @@ func (*fakeRuntimeApplier) Recover(context.Context) error   { return nil }
 func (orderedRuntimeApplier) Recover(context.Context) error { return nil }
 
 func validateHostInventoryEnvelope(report HostInventoryEnvelope, sessionID, deviceID string) error {
-	if report.Version != ProtocolVersion || report.Type != HostInventoryType || report.Profile != HostInventoryProfile || report.SessionID != sessionID || report.DeviceID != deviceID || report.Sequence == 0 || len(report.Signature) == 0 || len(report.Signature) > 256 {
+	if report.Version != ProtocolVersion || report.Type != HostInventoryType || !supportedIdentityProfile(report.Profile) || report.SessionID != sessionID || report.DeviceID != deviceID || report.Sequence == 0 || len(report.Signature) == 0 || len(report.Signature) > 256 {
 		return fmt.Errorf("host inventory envelope is invalid")
 	}
 	if err := report.Inventory.Validate(); err != nil {
@@ -1478,4 +1490,73 @@ func validateHostInventoryEnvelope(report HostInventoryEnvelope, sessionID, devi
 		return fmt.Errorf("host inventory hash is invalid")
 	}
 	return nil
+}
+
+// Graphical connection changes must invalidate cached application without taking
+// the authenticated session or independent printer inventory down.
+func TestRunCompanionUnavailableThenReconnect(t *testing.T) {
+	fixture, client, _ := newRunFixture(t, false, false, true)
+	fixture.runtime = runtimeRunFixtureArtifact()
+	applier := &fakeRuntimeApplier{}
+	applier.failures.Store(1000)
+	var epoch atomic.Int32
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	result := make(chan error, 1)
+	go func() {
+		result <- client.Run(ctx, RunOptions{RuntimeMode: "sway", RuntimeApplier: applier, RuntimeEpoch: func() string { return fmt.Sprint(epoch.Load()) }, PrinterReporter: bridgeReporter(), HeartbeatInterval: 10 * time.Millisecond, ReconnectDelay: 5 * time.Millisecond})
+	}()
+	first := waitForRuntimeAck(t, fixture, result, 1)
+	if first.Result != "failed" {
+		t.Fatalf("unavailable graphical apply: %+v", first)
+	}
+	select {
+	case <-fixture.printerReports:
+	case <-time.After(3 * time.Second):
+		t.Fatal("printer reporting stopped without companion")
+	}
+	select {
+	case <-fixture.heartbeats:
+	case <-time.After(3 * time.Second):
+		t.Fatal("heartbeat stopped without companion")
+	}
+	applier.failures.Store(0)
+	epoch.Store(1)
+	deadline := time.After(3 * time.Second)
+	for {
+		select {
+		case ack := <-fixture.runtimeAcks:
+			if ack.Result == "applied" {
+				goto applied
+			}
+		case err := <-result:
+			t.Fatalf("run stopped: %v", err)
+		case <-deadline:
+			t.Fatal("pending graphical apply did not recover")
+		}
+	}
+applied:
+	before := applier.calls.Load()
+	epoch.Store(2)
+	deadline = time.After(3 * time.Second)
+	for {
+		select {
+		case ack := <-fixture.runtimeAcks:
+			if ack.Result == "applied" {
+				goto reapplied
+			}
+		case err := <-result:
+			t.Fatalf("run stopped: %v", err)
+		case <-deadline:
+			t.Fatal("reconnected companion reused stale apply")
+		}
+	}
+reapplied:
+	if applier.calls.Load() <= before {
+		t.Fatal("new companion did not receive accepted desired")
+	}
+	cancel()
+	if err := <-result; !errors.Is(err, context.Canceled) {
+		t.Fatal(err)
+	}
 }

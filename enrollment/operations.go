@@ -75,7 +75,7 @@ func InventoryHash(inventory operations.Inventory) (string, error) {
 func HostInventoryCanonical(report HostInventoryEnvelope) []byte {
 	return CanonicalV1(HostInventoryType,
 		CanonicalField{"version", "1"},
-		CanonicalField{"profile", HostInventoryProfile},
+		CanonicalField{"profile", report.Profile},
 		CanonicalField{"sessionId", report.SessionID},
 		CanonicalField{"deviceId", report.DeviceID},
 		CanonicalField{"inventoryHash", report.InventoryHash},
@@ -86,7 +86,7 @@ func HostInventoryCanonical(report HostInventoryEnvelope) []byte {
 func OperationAckCanonical(ack OperationAck) []byte {
 	return CanonicalV1(OperationAckType,
 		CanonicalField{"version", "1"},
-		CanonicalField{"profile", ProvisionalIdentityProfile},
+		CanonicalField{"profile", ack.Profile},
 		CanonicalField{"sessionId", ack.SessionID},
 		CanonicalField{"deviceId", ack.DeviceID},
 		CanonicalField{"commandId", ack.CommandID},
@@ -105,7 +105,7 @@ func OperationResultCanonical(result OperationResultEnvelope) []byte {
 	}
 	return CanonicalV1(OperationResultType,
 		CanonicalField{"version", "1"},
-		CanonicalField{"profile", ProvisionalIdentityProfile},
+		CanonicalField{"profile", result.Profile},
 		CanonicalField{"sessionId", result.SessionID},
 		CanonicalField{"deviceId", result.DeviceID},
 		CanonicalField{"commandId", result.CommandID},
