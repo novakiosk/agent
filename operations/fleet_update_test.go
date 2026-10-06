@@ -283,14 +283,14 @@ func TestFleetDeploymentEvidence(t *testing.T) {
 		raw, _ := json.Marshal(map[string]any{"transaction": transaction, "deployments": []any{deployment}})
 		return raw
 	}
-	if got, pending, err := fleetDeployments(encode(nil)); err != nil || got != digest || pending != "" {
+	if got, pending, err := fleetDeployments(encode(nil), "ghcr.io/novakiosk/os"); err != nil || got != digest || pending != "" {
 		t.Fatal(got, pending, err)
 	}
-	if _, _, err := fleetDeployments(encode([]string{"upgrade"})); err == nil {
+	if _, _, err := fleetDeployments(encode([]string{"upgrade"}), "ghcr.io/novakiosk/os"); err == nil {
 		t.Fatal("active backend treated as settled")
 	}
 	deployment["container-image-reference"] = "ostree-unverified-registry:evil/image@" + digest
-	if _, _, err := fleetDeployments(encode(nil)); err == nil {
+	if _, _, err := fleetDeployments(encode(nil), "ghcr.io/novakiosk/os"); err == nil {
 		t.Fatal("untrusted image accepted")
 	}
 }
@@ -330,12 +330,12 @@ func TestFleetEligibilityMarkerAndLegacyGuard(t *testing.T) {
 func TestFleetObservedSignedOrigins(t *testing.T) {
 	digest := "sha256:" + strings.Repeat("a", 64)
 	for _, reference := range []string{"ostree-image-signed:docker://ghcr.io/novakiosk/os@" + digest, "ostree-image-signed:docker://ghcr.io/novakiosk/os:latest", "ostree-image-signed:registry:ghcr.io/novakiosk/os:latest"} {
-		if !signedFleetReference(reference, digest) {
+		if !signedFleetReference(reference, digest, "ghcr.io/novakiosk/os") {
 			t.Fatal(reference)
 		}
 	}
 	for _, reference := range []string{"ostree-unverified-registry:ghcr.io/novakiosk/os:latest", "ostree-image-signed:docker://ghcr.io/novakiosk/os-evil:latest", "ostree-image-signed:docker://ghcr.io/novakiosk/os@sha256:" + strings.Repeat("b", 64), "ostree-image-signed:registry:ghcr.io/novakiosk/os:bad tag"} {
-		if signedFleetReference(reference, digest) {
+		if signedFleetReference(reference, digest, "ghcr.io/novakiosk/os") {
 			t.Fatal(reference)
 		}
 	}

@@ -82,7 +82,7 @@ func (r Release) Hash() string {
 }
 func (r Release) Validate() error {
 	valid, _ := regexp.MatchString(`^sha256:[a-f0-9]{64}$`, r.ImageDigest)
-	if r.Version != 1 || r.Compatibility != FleetUpdateCapability || r.ImageRepository != "ghcr.io/novakiosk/os" || !valid {
+	if r.Version != 1 || r.Compatibility != FleetUpdateCapability || !validFleetRepository(r.ImageRepository) || !valid {
 		return errors.New("invalid OS image")
 	}
 	return nil
@@ -174,7 +174,11 @@ func (s *LinuxFleetSystem) Observe(ctx context.Context) (BootRelease, string, er
 	if err != nil {
 		return BootRelease{}, "", err
 	}
-	digest, pending, err := fleetDeployments(out)
+	repository, err := fleetPolicyRepository(readFleetPolicyFile)
+	if err != nil {
+		return BootRelease{}, "", err
+	}
+	digest, pending, err := fleetDeployments(out, repository)
 	if err != nil {
 		return BootRelease{}, "", err
 	}
@@ -190,10 +194,14 @@ func (s *LinuxFleetSystem) Observe(ctx context.Context) (BootRelease, string, er
 	if !versions.Valid() {
 		versions = nil
 	}
-	return BootRelease{BootID: bootID, Versions: versions, UpdateMode: bootUpdateMode(out), Release: Release{Version: 1, Compatibility: FleetUpdateCapability, ImageRepository: "ghcr.io/novakiosk/os", ImageDigest: digest}}, pending, nil
+	return BootRelease{BootID: bootID, Versions: versions, UpdateMode: bootUpdateMode(out), Release: Release{Version: 1, Compatibility: FleetUpdateCapability, ImageRepository: repository, ImageDigest: digest}}, pending, nil
 }
 
 func (s *LinuxFleetSystem) Stage(ctx context.Context, c UpdateCommand) error {
+	repository, err := fleetPolicyRepository(readFleetPolicyFile)
+	if err != nil || c.Release.Validate() != nil || c.Release.ImageRepository != repository {
+		return errors.New("target does not match installed image policy")
+	}
 	if !FleetUpdateSupported() {
 		return errors.New("unsupported image")
 	}
@@ -209,7 +217,7 @@ func (s *LinuxFleetSystem) Stage(ctx context.Context, c UpdateCommand) error {
 	if err := fleetAtomic("/var/lib/novakiosk-agentd-helpers/kiosk/system-update.json", data); err != nil {
 		return err
 	}
-	_, err := limitedCommand(ctx, 30*time.Minute, "/usr/bin/systemctl", "start", "--wait", updateUnit)
+	_, err = limitedCommand(ctx, 30*time.Minute, "/usr/bin/systemctl", "start", "--wait", updateUnit)
 	return err
 }
 func (s *LinuxFleetSystem) Reboot(ctx context.Context) error {
@@ -513,7 +521,7 @@ func (c *FleetCoordinator) Step(ctx context.Context) error {
 		if err := j.Command.Validate(c.clock(), true); err != nil {
 			return err
 		}
-		if observeErr != nil {
+		if observeErr != nil || boot.Release.ImageRepository != j.Command.Release.ImageRepository {
 			j.Phase = "failed"
 			reason := "preflight_failed"
 			j.Error = &reason
@@ -604,7 +612,7 @@ func ValidateResolvedFleetJournal(raw []byte, now time.Time) error {
 	return nil
 }
 
-func fleetDeployments(out []byte) (string, string, error) {
+func fleetDeployments(out []byte, repository string) (string, string, error) {
 	var status struct {
 		Transaction json.RawMessage `json:"transaction"`
 		Deployments []struct {
@@ -620,7 +628,7 @@ func fleetDeployments(out []byte) (string, string, error) {
 	digest, pending := "", ""
 	booted := 0
 	for i, d := range status.Deployments {
-		allowed := signedFleetReference(d.Reference, d.Digest)
+		allowed := signedFleetReference(d.Reference, d.Digest, repository)
 		if d.Booted {
 			if !allowed {
 				return "", "", errors.New("untrusted booted image reference")
@@ -634,7 +642,7 @@ func fleetDeployments(out []byte) (string, string, error) {
 			if !allowed {
 				pending = "conflicting"
 			} else {
-				pending = d.Digest + "|" + referenceMode(d.Reference)
+				pending = repository + "|" + d.Digest + "|" + referenceMode(d.Reference)
 			}
 		}
 	}
@@ -646,11 +654,14 @@ func fleetDeployments(out []byte) (string, string, error) {
 
 // The observed reference may retain an installer tag. Trust only the actual
 // local deployment digest; never resolve a tag over the network.
-func signedFleetReference(reference, digest string) bool {
+func signedFleetReference(reference, digest, repository string) bool {
+	if !validFleetRepository(repository) {
+		return false
+	}
 	if ok, _ := regexp.MatchString(`^sha256:[a-f0-9]{64}$`, digest); !ok {
 		return false
 	}
-	for _, prefix := range []string{"ostree-image-signed:docker://ghcr.io/novakiosk/os", "ostree-image-signed:registry:ghcr.io/novakiosk/os"} {
+	for _, prefix := range []string{"ostree-image-signed:docker://" + repository, "ostree-image-signed:registry:" + repository} {
 		if !strings.HasPrefix(reference, prefix) {
 			continue
 		}
@@ -721,7 +732,9 @@ func (c UpdateCommand) UpdateMode() string {
 	}
 	return "automatic"
 }
-func (c UpdateCommand) PendingIdentity() string { return c.Release.ImageDigest + "|" + c.UpdateMode() }
+func (c UpdateCommand) PendingIdentity() string {
+	return c.Release.ImageRepository + "|" + c.Release.ImageDigest + "|" + c.UpdateMode()
+}
 func (c UpdateCommand) MatchesBoot(boot BootRelease) bool {
 	return boot.Release.Hash() == c.Release.Hash() && boot.UpdateMode == c.UpdateMode()
 }
