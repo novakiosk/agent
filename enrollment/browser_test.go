@@ -70,19 +70,14 @@ func TestManagedChromiumArgumentsAreGraphicalPipeOnly(t *testing.T) {
 }
 
 func TestIdleChromiumArgumentsAreIsolatedAndLocal(t *testing.T) {
-	args := chromiumArguments(ChromiumOptions{
-		Binary:                  "/usr/bin/chromium",
-		UserDataDir:             "/var/lib/novakiosk-agent/idle-profile",
-		Kiosk:                   true,
-		KioskConfigured:         true,
-		RequireGraphicalSession: true,
-		InitialURL:              "file:///var/lib/novakiosk-agent/idle/idle.html",
-	})
+	args := chromiumArguments(idleChromiumOptions(
+		IdleSurfaceOptions{ChromiumBinary: "/usr/bin/chromium"},
+		"/var/lib/novakiosk-agent/idle-profile", "file:///var/lib/novakiosk-agent/idle/idle.html"))
 	for _, want := range []string{
 		"--remote-debugging-pipe",
 		"--user-data-dir=/var/lib/novakiosk-agent/idle-profile",
-		"--kiosk",
 		"--ozone-platform=wayland",
+		"--force-app-mode",
 		"file:///var/lib/novakiosk-agent/idle/idle.html",
 	} {
 		found := slices.Contains(args, want)
@@ -91,8 +86,8 @@ func TestIdleChromiumArgumentsAreIsolatedAndLocal(t *testing.T) {
 		}
 	}
 	for _, arg := range args {
-		if strings.HasPrefix(arg, "--remote-debugging-port") || strings.HasPrefix(arg, "--remote-debugging-address") || strings.Contains(arg, "http://") || strings.Contains(arg, "https://") {
-			t.Fatalf("idle Chromium args contain a network or TCP target: %q", arg)
+		if arg == "--kiosk" || arg == "--start-fullscreen" || strings.HasPrefix(arg, "--remote-debugging-port") || strings.HasPrefix(arg, "--remote-debugging-address") || strings.Contains(arg, "http://") || strings.Contains(arg, "https://") {
+			t.Fatalf("idle Chromium args contain native fullscreen or a network target: %q", arg)
 		}
 	}
 }

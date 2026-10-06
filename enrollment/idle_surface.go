@@ -2,12 +2,14 @@ package enrollment
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 const (
@@ -66,15 +68,7 @@ func RunIdleSurface(ctx context.Context, options IdleSurfaceOptions) (returnErr 
 	}
 
 	documentURL := (&url.URL{Scheme: "file", Path: document}).String()
-	browserValue, err := NewChromiumBrowser(ctx, ChromiumOptions{
-		Binary:                  options.ChromiumBinary,
-		UserDataDir:             profile,
-		Kiosk:                   true,
-		KioskConfigured:         true,
-		RequireGraphicalSession: true,
-		Environment:             options.environment,
-		InitialURL:              documentURL,
-	})
+	browserValue, err := NewChromiumBrowser(ctx, idleChromiumOptions(options, profile, documentURL))
 	if err != nil {
 		_ = removeDisposableIdleProfile(profile)
 		return fmt.Errorf("start idle Chromium: %w", err)
@@ -96,10 +90,105 @@ func RunIdleSurface(ctx context.Context, options IdleSurfaceOptions) (returnErr 
 	if _, err := browser.NavigateIdleFile(ctx, document); err != nil {
 		return fmt.Errorf("navigate idle document: %w", err)
 	}
+	if err := showIdleSurface(ctx, browser.cmd.Process.Pid, options.environment, ExecRuntimeCommandRunner{}); err != nil {
+		return fmt.Errorf("show idle surface: %w", err)
+	}
 	if err := browser.WaitForIdleInput(ctx); err != nil {
 		return fmt.Errorf("wait for idle input: %w", err)
 	}
 	return nil
+}
+
+func idleChromiumOptions(options IdleSurfaceOptions, profile, documentURL string) ChromiumOptions {
+	return ChromiumOptions{
+		Binary:      options.ChromiumBinary,
+		UserDataDir: profile,
+		// Native kiosk fullscreen would replace the presentation's workspace
+		// fullscreen and make Chromium expose its toolbar after idle closes.
+		// Map normally, then cover it with Sway's independent global fullscreen.
+		KioskConfigured:         true,
+		RequireGraphicalSession: true,
+		Environment:             options.environment,
+		InitialURL:              documentURL,
+		// Retain kiosk UI behavior (including no exit-fullscreen hint) without
+		// requesting native workspace fullscreen when the window maps.
+		ExtraArgs: []string{"--force-app-mode"},
+	}
+}
+
+type idleSwayNode struct {
+	ID            int64          `json:"id"`
+	PID           int            `json:"pid"`
+	Type          string         `json:"type"`
+	Nodes         []idleSwayNode `json:"nodes"`
+	FloatingNodes []idleSwayNode `json:"floating_nodes"`
+}
+
+// showIdleSurface only changes the owned idle window. Keeping the underlying
+// workspace fullscreen intact also makes SIGKILL/reapply safe: Sway uncovers
+// the presentation when idle disappears, without a restoration command. A
+// scratchpad global surface also makes Sway clear the overlay before choosing
+// the next keyboard focus on destruction. Do not use scratchpad show: it would
+// disable the presentation's workspace fullscreen.
+func showIdleSurface(ctx context.Context, pid int, environment []string, runner RuntimeCommandRunner) error {
+	if pid <= 0 {
+		return errors.New("idle Chromium process is invalid")
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		data, err := runner.Run(ctx, "/usr/bin/swaymsg", []string{"-r", "-t", "get_tree"}, environment)
+		if err != nil {
+			return fmt.Errorf("inspect idle window: %w", err)
+		}
+		var tree idleSwayNode
+		if err := json.Unmarshal(data, &tree); err != nil || tree.Type != "root" {
+			return errors.New("invalid Sway tree")
+		}
+		var matches []int64
+		var visit func(idleSwayNode)
+		visit = func(node idleSwayNode) {
+			if (node.Type == "con" || node.Type == "floating_con") && node.PID == pid && node.ID > 0 {
+				matches = append(matches, node.ID)
+			}
+			for _, child := range node.Nodes {
+				visit(child)
+			}
+			for _, child := range node.FloatingNodes {
+				visit(child)
+			}
+		}
+		visit(tree)
+		if len(matches) > 1 {
+			return errors.New("idle Chromium has multiple windows")
+		}
+		if len(matches) == 1 {
+			command := fmt.Sprintf("[con_id=%d pid=%d] move scratchpad, fullscreen enable global, focus", matches[0], pid)
+			data, err := runner.Run(ctx, "/usr/bin/swaymsg", []string{"-r", command}, environment)
+			if err != nil {
+				return fmt.Errorf("display idle window: %w", err)
+			}
+			var results []struct {
+				Success bool `json:"success"`
+			}
+			if err := json.Unmarshal(data, &results); err != nil || len(results) != 3 || !results[0].Success || !results[1].Success || !results[2].Success {
+				return errors.New("Sway did not display and focus idle window")
+			}
+			return nil
+		}
+		// CDP can be ready before the Wayland window maps. This bounded startup
+		// wait ends as soon as the one owned window appears; it is not a watchdog.
+		timer := time.NewTimer(50 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
 }
 
 func validateIdleStateRoot(path string) error {
