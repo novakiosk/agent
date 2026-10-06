@@ -95,6 +95,51 @@ func stepFleet(t *testing.T, c *FleetCoordinator) {
 		t.Fatal(err)
 	}
 }
+func TestFleetStageOutcomeUsesDeploymentEvidence(t *testing.T) {
+	for _, tc := range []struct {
+		name, pending, phase, reason string
+		stageErr                     error
+	}{
+		{name: "helper failure", phase: "failed", reason: "stage_failed", stageErr: errors.New("private helper output")},
+		{name: "missing deployment", phase: "failed", reason: "stage_not_pending"},
+		{name: "pending despite helper failure", pending: "match", phase: "staged", stageErr: errors.New("wait failed")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, f, command := fleetSetup(t)
+			f.stageErr = tc.stageErr
+			c.stageErr = errors.New("previous command failure")
+			if err := c.Accept(command); err != nil {
+				t.Fatal(err)
+			}
+			stepFleet(t, c)
+			deadline := time.Now().Add(time.Second)
+			for {
+				c.mu.Lock()
+				running := c.running
+				c.mu.Unlock()
+				if !running {
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatal("stage did not finish")
+				}
+				time.Sleep(time.Millisecond)
+			}
+			if tc.pending == "match" {
+				f.pending = command.PendingIdentity()
+			}
+			stepFleet(t, c)
+			j := c.Current()
+			if j.Phase != tc.phase || (tc.reason == "" && j.Error != nil) || (tc.reason != "" && (j.Error == nil || *j.Error != tc.reason)) {
+				t.Fatalf("unexpected outcome: %+v", j)
+			}
+			if f.reboots != 0 {
+				t.Fatal("stage outcome rebooted device")
+			}
+		})
+	}
+}
+
 func TestFleetSelectedImageCrashAndReboot(t *testing.T) {
 	c, f, command := fleetSetup(t)
 	if err := c.Accept(command); err != nil {

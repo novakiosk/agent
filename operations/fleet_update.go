@@ -243,6 +243,7 @@ type FleetCoordinator struct {
 	clock    func() time.Time
 	journal  *FleetJournal
 	running  bool
+	stageErr error
 }
 
 func NewFleetCoordinator(stateDir string, system FleetSystem, clock func() time.Time) (*FleetCoordinator, error) {
@@ -543,10 +544,12 @@ func (c *FleetCoordinator) Step(ctx context.Context) error {
 			return err
 		}
 		c.running = true
+		c.stageErr = nil
 		go func(command UpdateCommand) {
-			_ = c.system.Stage(context.Background(), command)
+			err := c.system.Stage(context.Background(), command)
 			c.mu.Lock()
 			defer c.mu.Unlock()
+			c.stageErr = err
 			c.running = false
 		}(j.Command)
 	case "executing", "unknown":
@@ -564,6 +567,10 @@ func (c *FleetCoordinator) Step(ctx context.Context) error {
 		if observeErr == nil && pending == "" {
 			j.Phase = "failed"
 			reason := "stage_not_pending"
+			if c.stageErr != nil {
+				// Keep raw helper errors local; fleet reports use bounded categories.
+				reason = "stage_failed"
+			}
 			j.Error = &reason
 			return c.persist(j)
 		}
